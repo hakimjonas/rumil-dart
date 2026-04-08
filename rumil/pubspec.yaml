@@ -1,0 +1,13 @@
+name: rumil
+description: >-
+  A parser combinator library for Dart with native left-recursion,
+  stack-safe trampolining, lazy error construction, and lossless syntax trees.
+version: 0.1.0
+repository: https://codeberg.org/hakim/rumil-dart
+
+environment:
+  sdk: ^3.7.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^5.0.0
