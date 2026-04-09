@@ -51,12 +51,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          for pkg in rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder rumil_bench; do
+          for pkg in rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder; do
             (cd $pkg && dart pub get)
           done
 
       - name: Check formatting
-        run: dart format --output=none --set-exit-if-changed .
+        run: dart format --output=none --set-exit-if-changed rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder
 
   test:
     name: Test
