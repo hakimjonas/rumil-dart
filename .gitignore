@@ -3,7 +3,7 @@
 .packages
 pubspec.lock
 build/
-*.g.dart
+# *.g.dart excluded from global gitignore; rumil_codec_builder needs generated files committed
 
 # Wasm build artifacts
 *.wasm
