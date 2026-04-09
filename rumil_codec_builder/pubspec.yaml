@@ -16,8 +16,7 @@ dependencies:
   build: ">=3.0.0 <5.0.0"
   source_gen: ^4.0.0
   analyzer: ">=7.0.0 <13.0.0"
-  rumil_codec:
-    path: ../rumil_codec
+  rumil_codec: ^0.1.0
 
 dev_dependencies:
   build_runner: ">=2.4.0 <3.0.0"
