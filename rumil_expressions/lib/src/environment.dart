@@ -8,12 +8,16 @@ import 'dart:math' as math;
 /// Variables are `Object` values (double, String, bool).
 /// Functions take a list of `Object` arguments and return `Object`.
 class Environment {
+  /// Named values available to expressions.
   final Map<String, Object> variables;
+
+  /// Named functions callable from expressions.
   final Map<String, Object Function(List<Object>)> functions;
 
+  /// Creates an environment with the given [variables] and [functions].
   const Environment({this.variables = const {}, this.functions = const {}});
 
-  /// Create an environment with built-in math and string functions.
+  /// Creates an environment with built-in math and string functions.
   factory Environment.standard({
     Map<String, Object> variables = const {},
     Map<String, Object Function(List<Object>)> functions = const {},
@@ -30,6 +34,9 @@ double _asNum(Object v, String ctx) {
 }
 
 /// Built-in functions available via [Environment.standard].
+///
+/// Includes: abs, ceil, floor, round, sqrt, min, max, length,
+/// uppercase, lowercase.
 final Map<String, Object Function(List<Object>)> builtinFunctions = {
   'abs': (args) => _asNum(args[0], 'abs').abs(),
   'ceil': (args) => _asNum(args[0], 'ceil').ceilToDouble(),
@@ -57,8 +64,12 @@ final Map<String, Object Function(List<Object>)> builtinFunctions = {
 
 /// Error thrown during expression evaluation.
 class EvalException implements Exception {
+  /// The error message.
   final String message;
+
+  /// Creates an [EvalException] with [message].
   const EvalException(this.message);
+
   @override
   String toString() => 'EvalException: $message';
 }
