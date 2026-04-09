@@ -2,7 +2,7 @@ name: rumil_codec_builder
 description: >-
   Code generator for rumil_codec: derives BinaryCodec implementations
   for annotated classes and sealed class hierarchies.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/hakimjonas/rumil-dart
 topics:
   - codec
