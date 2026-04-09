@@ -93,8 +93,9 @@ void main() {
       final r = p.run('x');
       final f = r as Failure<ParseError, String>;
       // The named parser should add 'letter' to expected
-      final hasLetter = f.errors.any((e) =>
-          e is Unexpected && e.expected.contains('letter'));
+      final hasLetter = f.errors.any(
+        (e) => e is Unexpected && e.expected.contains('letter'),
+      );
       expect(hasLetter, isTrue);
     });
 
@@ -107,7 +108,7 @@ void main() {
     });
 
     test('error tracks line and column', () {
-      final p = string('hello') << char('\n') << string('world');
+      final p = string('hello').thenSkip(char('\n')).thenSkip(string('world'));
       final r = p.run('hello\nxyz');
       // 'hello\n' consumed, then 'world' fails at 'xyz'
       final f = r as Failure<ParseError, String>;

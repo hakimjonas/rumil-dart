@@ -3,6 +3,13 @@
 .packages
 pubspec.lock
 build/
+*.g.dart
+
+# Wasm build artifacts
+*.wasm
+*.mjs
+*.wasm.map
+*.support.js
 
 # IDE
 .idea/
@@ -12,3 +19,4 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+doc/

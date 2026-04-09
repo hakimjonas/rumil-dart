@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dart-lang/setup-dart@v1.7.2
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: |
+          for pkg in rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder; do
+            (cd $pkg && dart pub get)
+          done
+
+      - name: Generate code for rumil_codec_builder
+        working-directory: rumil_codec_builder
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Analyze standalone packages
+        run: |
+          for pkg in rumil rumil_codec; do
+            echo "=== $pkg ==="
+            (cd $pkg && dart analyze --fatal-infos)
+          done
+
+      - name: Analyze packages with path deps (warning expected)
+        run: |
+          for pkg in rumil_parsers rumil_expressions rumil_codec_builder; do
+            echo "=== $pkg ==="
+            (cd $pkg && dart analyze --no-fatal-warnings)
+          done
+
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dart-lang/setup-dart@v1.7.2
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: |
+          for pkg in rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder rumil_bench; do
+            (cd $pkg && dart pub get)
+          done
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dart-lang/setup-dart@v1.7.2
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: |
+          for pkg in rumil rumil_codec rumil_parsers rumil_expressions; do
+            (cd $pkg && dart pub get)
+          done
+
+      - name: Test rumil
+        working-directory: rumil
+        run: dart test
+
+      - name: Test rumil_codec
+        working-directory: rumil_codec
+        run: dart test
+
+      - name: Test rumil_parsers
+        working-directory: rumil_parsers
+        run: dart test
+
+      - name: Test rumil_expressions
+        working-directory: rumil_expressions
+        run: dart test
+
+  doc:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dart-lang/setup-dart@v1.7.2
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: |
+          for pkg in rumil rumil_codec rumil_parsers rumil_expressions; do
+            (cd $pkg && dart pub get)
+          done
+
+      - name: Generate docs
+        run: |
+          for pkg in rumil rumil_codec; do
+            echo "=== $pkg ==="
+            (cd $pkg && dart doc --validate-links)
+          done

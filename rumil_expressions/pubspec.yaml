@@ -1,0 +1,21 @@
+name: rumil_expressions
+description: >-
+  Formula evaluator built on Rumil: arithmetic, boolean logic, string ops,
+  variables, custom functions, and precise error locations.
+version: 0.1.0
+repository: https://github.com/hakimjonas/rumil-dart
+topics:
+  - parser
+  - expression
+  - evaluator
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  rumil:
+    path: ../rumil
+
+dev_dependencies:
+  test: ^1.31.0
+  lints: ^6.0.0

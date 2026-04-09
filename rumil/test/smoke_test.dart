@@ -50,20 +50,19 @@ void main() {
     });
 
     test('seq (zip) returns record', () {
-      expect(successValue(char('a').seq(char('b')).run('ab')), ('a', 'b'));
+      expect(successValue(char('a').zip(char('b')).run('ab')), ('a', 'b'));
     });
 
-    test('<< keeps left', () {
-      expect(successValue((char('a') << char('b')).run('ab')), 'a');
+    test('thenSkip keeps left', () {
+      expect(successValue(char('a').thenSkip(char('b')).run('ab')), 'a');
     });
 
     test('then_ keeps right', () {
-      expect(successValue(char('a').then_(char('b')).run('ab')), 'b');
+      expect(successValue(char('a').skipThen(char('b')).run('ab')), 'b');
     });
 
     test('flatMap chains', () {
-      final p = digit()
-          .flatMap((d) => string('+').map((_) => int.parse(d)));
+      final p = digit().flatMap((d) => string('+').map((_) => int.parse(d)));
       expect(successValue(p.run('5+')), 5);
     });
   });
@@ -102,11 +101,14 @@ void main() {
       // 1+2+3 should parse as (1+2)+3 = 6
 
       late final Parser<ParseError, int> expr;
-      expr = rule<ParseError, int>(() =>
-          (expr << char('+')).seq(digit().map(int.parse)).map(
-                (pair) => pair.$1 + pair.$2,
-              ) |
-          digit().map(int.parse));
+      expr = rule<ParseError, int>(
+        () =>
+            expr
+                .thenSkip(char('+'))
+                .zip(digit().map(int.parse))
+                .map((pair) => pair.$1 + pair.$2) |
+            digit().map(int.parse),
+      );
 
       expect(successValue(expr.run('1+2+3')), 6);
     });
@@ -116,9 +118,11 @@ void main() {
       // "baaa" should parse as (((b)a)a)a
 
       late final Parser<ParseError, String> expr;
-      expr = rule<ParseError, String>(() =>
-          expr.seq(char('a')).map((pair) => '(${pair.$1}${pair.$2})') |
-          char('b'));
+      expr = rule<ParseError, String>(
+        () =>
+            expr.zip(char('a')).map((pair) => '(${pair.$1}${pair.$2})') |
+            char('b'),
+      );
 
       expect(successValue(expr.run('baaa')), '(((ba)a)a)');
     });

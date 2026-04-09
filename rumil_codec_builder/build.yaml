@@ -1,0 +1,15 @@
+builders:
+  codec:
+    import: "package:rumil_codec_builder/builder.dart"
+    builder_factories: ["codecBuilder"]
+    build_extensions: {".dart": [".codec.g.dart"]}
+    auto_apply: dependents
+    build_to: source
+
+targets:
+  $default:
+    builders:
+      rumil_codec_builder|codec:
+        enabled: true
+        generate_for:
+          - lib/sample.dart

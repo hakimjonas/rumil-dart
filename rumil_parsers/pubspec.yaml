@@ -1,0 +1,21 @@
+name: rumil_parsers
+description: >-
+  Format parsers built on Rumil: JSON, CSV, XML, TOML, YAML, Proto3,
+  plus typed AST decoders with ObjectAccessor pattern.
+version: 0.1.0
+repository: https://github.com/hakimjonas/rumil-dart
+topics:
+  - parser
+  - json
+  - toml
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  rumil:
+    path: ../rumil
+
+dev_dependencies:
+  test: ^1.31.0
+  lints: ^6.0.0

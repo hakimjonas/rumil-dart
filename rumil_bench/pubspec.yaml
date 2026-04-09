@@ -1,0 +1,19 @@
+name: rumil_bench
+description: Benchmarks for Rumil parser combinators.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  rumil:
+    path: ../rumil
+  rumil_parsers:
+    path: ../rumil_parsers
+  rumil_expressions:
+    path: ../rumil_expressions
+  petitparser: ^7.0.0
+
+dev_dependencies:
+  lints: ^6.0.0

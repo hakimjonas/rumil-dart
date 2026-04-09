@@ -4,7 +4,6 @@ import 'package:test/test.dart';
 void main() {
   group('Stack safety', () {
     test('deep flatMap chain (1000)', () {
-      // Build a chain of 1000 flatMaps: succeed(0).flatMap(+1).flatMap(+1)...
       Parser<ParseError, int> p = succeed<ParseError, int>(0);
       for (var i = 0; i < 1000; i++) {
         p = p.flatMap((n) => succeed<ParseError, int>(n + 1));
@@ -12,6 +11,36 @@ void main() {
       final r = p.run('');
       expect(r, isA<Success<ParseError, int>>());
       expect((r as Success<ParseError, int>).value, 1000);
+    });
+
+    test('deep flatMap chain (100K) — trampoline', () {
+      Parser<ParseError, int> p = succeed<ParseError, int>(0);
+      for (var i = 0; i < 100000; i++) {
+        p = p.flatMap((n) => succeed<ParseError, int>(n + 1));
+      }
+      final r = p.run('');
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 100000);
+    });
+
+    test('deep flatMap chain (1M) — trampoline', () {
+      Parser<ParseError, int> p = succeed<ParseError, int>(0);
+      for (var i = 0; i < 1000000; i++) {
+        p = p.flatMap((n) => succeed<ParseError, int>(n + 1));
+      }
+      final r = p.run('');
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 1000000);
+    });
+
+    test('deep flatMap chain (10M) — trampoline', () {
+      Parser<ParseError, int> p = succeed<ParseError, int>(0);
+      for (var i = 0; i < 10000000; i++) {
+        p = p.flatMap((n) => succeed<ParseError, int>(n + 1));
+      }
+      final r = p.run('');
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 10000000);
     });
 
     test('deep map chain (1000)', () {
@@ -53,11 +82,14 @@ void main() {
   group('Left recursion stress', () {
     test('left-recursive expr with 10 terms', () {
       late final Parser<ParseError, int> expr;
-      expr = rule<ParseError, int>(() =>
-          (expr << char('+')).seq(digit().map(int.parse)).map(
-                (pair) => pair.$1 + pair.$2,
-              ) |
-          digit().map(int.parse));
+      expr = rule<ParseError, int>(
+        () =>
+            expr
+                .thenSkip(char('+'))
+                .zip(digit().map(int.parse))
+                .map((pair) => pair.$1 + pair.$2) |
+            digit().map(int.parse),
+      );
 
       // 1+2+3+4+5+6+7+8+9+0 = 45
       final r = expr.run('1+2+3+4+5+6+7+8+9+0');
@@ -67,11 +99,14 @@ void main() {
 
     test('left-recursive expr with 50 terms', () {
       late final Parser<ParseError, int> expr;
-      expr = rule<ParseError, int>(() =>
-          (expr << char('+')).seq(digit().map(int.parse)).map(
-                (pair) => pair.$1 + pair.$2,
-              ) |
-          digit().map(int.parse));
+      expr = rule<ParseError, int>(
+        () =>
+            expr
+                .thenSkip(char('+'))
+                .zip(digit().map(int.parse))
+                .map((pair) => pair.$1 + pair.$2) |
+            digit().map(int.parse),
+      );
 
       // Build "1+1+1+...+1" (50 ones)
       final input = List<String>.filled(50, '1').join('+');
@@ -88,11 +123,14 @@ void main() {
       late final Parser<ParseError, int> expr;
       late final Parser<ParseError, int> term;
 
-      term = rule<ParseError, int>(() =>
-          (term << char('*')).seq(digit().map(int.parse)).map(
-                (pair) => pair.$1 * pair.$2,
-              ) |
-          digit().map(int.parse));
+      term = rule<ParseError, int>(
+        () =>
+            term
+                .thenSkip(char('*'))
+                .zip(digit().map(int.parse))
+                .map((pair) => pair.$1 * pair.$2) |
+            digit().map(int.parse),
+      );
 
       expr = term;
 
@@ -105,14 +143,18 @@ void main() {
     test('left recursion with alternation', () {
       // expr = expr "+" digit | expr "-" digit | digit
       late final Parser<ParseError, int> expr;
-      expr = rule<ParseError, int>(() =>
-          (expr << char('+')).seq(digit().map(int.parse)).map(
-                (pair) => pair.$1 + pair.$2,
-              ) |
-          (expr << char('-')).seq(digit().map(int.parse)).map(
-                (pair) => pair.$1 - pair.$2,
-              ) |
-          digit().map(int.parse));
+      expr = rule<ParseError, int>(
+        () =>
+            expr
+                .thenSkip(char('+'))
+                .zip(digit().map(int.parse))
+                .map((pair) => pair.$1 + pair.$2) |
+            expr
+                .thenSkip(char('-'))
+                .zip(digit().map(int.parse))
+                .map((pair) => pair.$1 - pair.$2) |
+            digit().map(int.parse),
+      );
 
       final r = expr.run('9-3+2');
       expect(r, isA<Success<ParseError, int>>());

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: "pub"
+    directory: "/rumil"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pub"
+    directory: "/rumil_codec"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pub"
+    directory: "/rumil_parsers"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "pub"
+    directory: "/rumil_expressions"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
