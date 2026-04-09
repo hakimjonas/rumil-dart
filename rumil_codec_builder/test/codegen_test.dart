@@ -1,7 +1,7 @@
 import 'package:rumil_codec/rumil_codec.dart';
 import 'package:test/test.dart';
 
-import 'package:rumil_codec_builder/sample.dart';
+import '../example/example.dart';
 
 void main() {
   group('Generated Person codec', () {

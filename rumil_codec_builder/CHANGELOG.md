@@ -1,3 +1,9 @@
+## 0.1.1
+
+- Move sample code to example/ for correct pub.dev analysis
+- Tighten analyzer dependency lower bound
+- Add doc comments to public API
+
 ## 0.1.0
 
 - Core parser combinators: sealed Parser ADT with 26 subtypes, external interpreter, defunctionalized trampoline

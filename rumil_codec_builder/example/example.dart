@@ -1,6 +1,6 @@
 import 'package:rumil_codec/rumil_codec.dart';
 
-part 'sample.codec.g.dart';
+part 'example.codec.g.dart';
 
 @binarySerializable
 class Person {
