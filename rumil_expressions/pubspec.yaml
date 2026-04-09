@@ -2,7 +2,7 @@ name: rumil_expressions
 description: >-
   Formula evaluator built on Rumil: arithmetic, boolean logic, string ops,
   variables, custom functions, and precise error locations.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/hakimjonas/rumil-dart
 topics:
   - parser
