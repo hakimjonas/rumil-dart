@@ -1,5 +1,6 @@
 ## 0.2.0
 
+- Exported shared evaluation helpers: `asNum`, `asBool`, `typeName`, `applyBinaryOp`, `applyUnaryOp`, `compareValues`.
 - Depends on rumil ^0.2.0 (`fail` renamed to `failure`).
 
 ## 0.1.1

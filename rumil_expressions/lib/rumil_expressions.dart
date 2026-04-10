@@ -10,6 +10,7 @@ import 'src/parser.dart' as parser_;
 
 export 'src/ast.dart';
 export 'src/environment.dart';
+export 'src/eval_helpers.dart';
 
 /// Parse and evaluate an expression string.
 ///
