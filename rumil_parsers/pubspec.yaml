@@ -18,7 +18,3 @@ dependencies:
 dev_dependencies:
   test: ^1.31.0
   lints: ^6.0.0
-
-dependency_overrides:
-  rumil:
-    path: ../rumil
