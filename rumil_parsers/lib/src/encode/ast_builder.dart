@@ -1,6 +1,7 @@
 /// AstBuilder: convert native Dart values to format-specific AST nodes.
 library;
 
+import '../ast/hcl.dart';
 import '../ast/json.dart';
 import '../ast/toml.dart';
 import '../ast/xml.dart';
@@ -67,6 +68,9 @@ const AstBuilder<TomlValue> tomlBuilder = _TomlAstBuilder();
 
 /// AstBuilder for XML (values become text nodes).
 const AstBuilder<XmlNode> xmlBuilder = _XmlAstBuilder();
+
+/// AstBuilder for HCL.
+const AstBuilder<HclValue> hclBuilder = _HclAstBuilder();
 
 // ---- Implementations ----
 
@@ -152,4 +156,22 @@ final class _XmlAstBuilder implements AstBuilder<XmlNode> {
   XmlNode fromBool(bool b) => XmlText('$b');
   @override
   XmlNode fromNull() => const XmlText('');
+}
+
+final class _HclAstBuilder implements AstBuilder<HclValue> {
+  const _HclAstBuilder();
+  @override
+  HclValue createObject(Map<String, HclValue> fields) => HclObject(fields);
+  @override
+  HclValue createArray(List<HclValue> elements) => HclList(elements);
+  @override
+  HclValue fromString(String s) => HclString(s);
+  @override
+  HclValue fromInt(int n) => HclNumber(n);
+  @override
+  HclValue fromDouble(double n) => HclNumber(n);
+  @override
+  HclValue fromBool(bool b) => HclBool(b);
+  @override
+  HclValue fromNull() => const HclNull();
 }

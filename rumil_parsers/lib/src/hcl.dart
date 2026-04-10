@@ -159,6 +159,6 @@ final Parser<ParseError, HclDocument> _hclDocument = _skip
       (entries) => _skip
           .skipThen(eof())
           .map(
-            (_) => Map.fromEntries(entries.map((e) => MapEntry(e.$1, e.$2))),
+            (_) => entries,
           ),
     );

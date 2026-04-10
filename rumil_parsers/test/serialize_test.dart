@@ -439,6 +439,55 @@ message Person {
       final reparsed = _yamlDoc('$s\n');
       expect(reparsed, ast);
     });
+
+    test('nested mapping round-trip', () {
+      const ast = YamlMapping({
+        'database': YamlMapping({
+          'host': YamlString('localhost'),
+          'port': YamlInteger(5432),
+        }),
+      });
+      final s = serializeYaml(ast);
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
+
+    test('sequence of mappings round-trip', () {
+      const ast = YamlMapping({
+        'users': YamlSequence([
+          YamlMapping({'name': YamlString('Alice'), 'age': YamlInteger(25)}),
+          YamlMapping({'name': YamlString('Bob'), 'age': YamlInteger(30)}),
+        ]),
+      });
+      final s = serializeYaml(ast);
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
+
+    test('deeply nested round-trip', () {
+      const ast = YamlMapping({
+        'a': YamlMapping({
+          'b': YamlMapping({
+            'c': YamlString('deep'),
+          }),
+        }),
+      });
+      final s = serializeYaml(ast);
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
+
+    test('mixed nesting round-trip', () {
+      const ast = YamlMapping({
+        'database': YamlMapping({
+          'host': YamlString('localhost'),
+          'ports': YamlSequence([YamlInteger(5432), YamlInteger(5433)]),
+        }),
+      });
+      final s = serializeYaml(ast);
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
   });
 
   // Item 5: Proto structural round-trip

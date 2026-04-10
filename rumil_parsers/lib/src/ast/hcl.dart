@@ -137,5 +137,6 @@ final class HclReference extends HclValue {
   int get hashCode => path.hashCode;
 }
 
-/// An HCL document (top-level attributes and blocks).
-typedef HclDocument = Map<String, HclValue>;
+/// An HCL document. List of pairs because HCL allows multiple
+/// blocks with the same type name.
+typedef HclDocument = List<(String, HclValue)>;

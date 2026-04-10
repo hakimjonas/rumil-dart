@@ -7,30 +7,29 @@ import 'escape.dart';
 /// Serialize an [HclDocument] to HCL text.
 String serializeHcl(HclDocument doc, {int indent = 2}) {
   final sb = StringBuffer();
-  _serializeBody(sb, doc, indent, 0);
-  return sb.toString();
-}
-
-void _serializeBody(
-  StringBuffer sb,
-  Map<String, HclValue> body,
-  int indent,
-  int depth,
-) {
-  final pad = ' ' * (indent * depth);
-  for (final MapEntry(:key, :value) in body.entries) {
+  for (final (key, value) in doc) {
     switch (value) {
       case HclBlock(:final type, :final labels, body: final blockBody):
         final labelStr = labels.map((l) => '"$l"').join(' ');
         final sep = labelStr.isEmpty ? '' : ' $labelStr';
-        sb.writeln('$pad$type$sep {');
-        _serializeBody(sb, blockBody, indent, depth + 1);
-        sb.writeln('$pad}');
+        sb.writeln('$type$sep {');
+        for (final MapEntry(:key, :value) in blockBody.entries) {
+          final pad = ' ' * indent;
+          switch (value) {
+            case HclBlock():
+              sb.write(pad);
+              sb.write(serializeHcl([(key, value)], indent: indent));
+            default:
+              sb.writeln('$pad$key = ${_serializeValue(value)}');
+          }
+        }
+        sb.writeln('}');
       default:
-        sb.writeln('$pad$key = ${_serializeValue(value)}');
+        sb.writeln('$key = ${_serializeValue(value)}');
     }
-    if (depth == 0) sb.writeln();
+    sb.writeln();
   }
+  return sb.toString();
 }
 
 String _serializeValue(HclValue value) => switch (value) {

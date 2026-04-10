@@ -86,6 +86,25 @@ Object? xmlToNative(XmlNode node) => switch (node) {
   XmlPI() => null,
 };
 
+/// Convert an [HclDocument] to native Dart types.
+///
+/// Groups duplicate block types into lists.
+Map<String, Object?> hclDocToNative(HclDocument doc) {
+  final result = <String, Object?>{};
+  for (final (key, value) in doc) {
+    final native = hclToNative(value);
+    final existing = result[key];
+    if (existing is List) {
+      existing.add(native);
+    } else if (existing != null) {
+      result[key] = [existing, native];
+    } else {
+      result[key] = native;
+    }
+  }
+  return result;
+}
+
 /// Convert an [HclValue] to native Dart types.
 ///
 /// Blocks include `_type` and `_labels` metadata fields.
