@@ -1,6 +1,8 @@
 /// TOML AST types.
 library;
 
+import '_equality.dart';
+
 /// A TOML value.
 sealed class TomlValue {
   /// Base constructor.
@@ -14,6 +16,12 @@ final class TomlString extends TomlValue {
 
   /// Creates a string value.
   const TomlString(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is TomlString && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// TOML integer.
@@ -23,6 +31,12 @@ final class TomlInteger extends TomlValue {
 
   /// Creates an integer value.
   const TomlInteger(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is TomlInteger && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// TOML float.
@@ -32,6 +46,12 @@ final class TomlFloat extends TomlValue {
 
   /// Creates a float value.
   const TomlFloat(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is TomlFloat && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// TOML boolean.
@@ -41,6 +61,12 @@ final class TomlBool extends TomlValue {
 
   /// Creates a boolean value.
   const TomlBool(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is TomlBool && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// TOML offset datetime (absolute point in time).
@@ -50,6 +76,12 @@ final class TomlDateTime extends TomlValue {
 
   /// Creates an offset datetime.
   const TomlDateTime(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is TomlDateTime && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// TOML local datetime (no timezone).
@@ -59,6 +91,13 @@ final class TomlLocalDateTime extends TomlValue {
 
   /// Creates a local datetime.
   const TomlLocalDateTime(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TomlLocalDateTime && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
 }
 
 /// TOML local date.
@@ -74,6 +113,16 @@ final class TomlLocalDate extends TomlValue {
 
   /// Creates a local date.
   const TomlLocalDate(this.year, this.month, this.day);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TomlLocalDate &&
+          other.year == year &&
+          other.month == month &&
+          other.day == day;
+  @override
+  int get hashCode => Object.hash(year, month, day);
 }
 
 /// TOML local time.
@@ -97,6 +146,17 @@ final class TomlLocalTime extends TomlValue {
     this.second, [
     this.nanosecond = 0,
   ]);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TomlLocalTime &&
+          other.hour == hour &&
+          other.minute == minute &&
+          other.second == second &&
+          other.nanosecond == nanosecond;
+  @override
+  int get hashCode => Object.hash(hour, minute, second, nanosecond);
 }
 
 /// TOML array.
@@ -106,6 +166,13 @@ final class TomlArray extends TomlValue {
 
   /// Creates an array value.
   const TomlArray(this.elements);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TomlArray && listEquals(elements, other.elements);
+  @override
+  int get hashCode => listHash(elements);
 }
 
 /// TOML table (inline or section).
@@ -115,6 +182,13 @@ final class TomlTable extends TomlValue {
 
   /// Creates a table value.
   const TomlTable(this.pairs);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TomlTable && mapEquals(pairs, other.pairs);
+  @override
+  int get hashCode => mapHash(pairs);
 }
 
 /// A TOML document is a table at the top level.

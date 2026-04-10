@@ -5,6 +5,12 @@ builders:
     build_extensions: {".dart": [".codec.g.dart"]}
     auto_apply: dependents
     build_to: source
+  ast_encoder:
+    import: "package:rumil_codec_builder/rumil_codec_builder.dart"
+    builder_factories: ["astEncoderBuilder"]
+    build_extensions: {".dart": [".ast.g.dart"]}
+    auto_apply: dependents
+    build_to: source
 
 targets:
   $default:
@@ -12,4 +18,8 @@ targets:
       rumil_codec_builder|codec:
         enabled: true
         generate_for:
-          - lib/sample.dart
+          - example/example.dart
+      rumil_codec_builder|ast_encoder:
+        enabled: true
+        generate_for:
+          - example/example.dart

@@ -1,8 +1,11 @@
 import 'package:rumil_codec/rumil_codec.dart';
+import 'package:rumil_parsers/rumil_parsers.dart';
 
 part 'example.codec.g.dart';
+part 'example.ast.g.dart';
 
 @binarySerializable
+@astSerializable
 class Person {
   final String name;
   final int age;
@@ -10,6 +13,7 @@ class Person {
 }
 
 @binarySerializable
+@astSerializable
 sealed class Shape {}
 
 final class Circle extends Shape {

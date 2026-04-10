@@ -1,4 +1,5 @@
 import 'package:rumil_codec/rumil_codec.dart';
+import 'package:rumil_parsers/rumil_parsers.dart';
 import 'package:test/test.dart';
 
 import '../example/example.dart';
@@ -86,6 +87,36 @@ void main() {
       expect(exprCodec.encode(Lit(0))[0], 0);
       expect(exprCodec.encode(Add(Lit(0), Lit(0)))[0], 1);
       expect(exprCodec.encode(Mul(Lit(0), Lit(0)))[0], 2);
+    });
+  });
+
+  group('Generated Person JSON encoder', () {
+    test('encodes to JsonObject', () {
+      const person = Person('Alice', 30);
+      final ast = personJsonEncoder.encode(person);
+      expect(ast, isA<JsonObject>());
+    });
+
+    test('round-trips through serialize + parse', () {
+      const person = Person('Alice', 30);
+      final ast = personJsonEncoder.encode(person);
+      final json = serializeJson(ast);
+      expect(json, '{"name":"Alice","age":30}');
+    });
+  });
+
+  group('Generated Shape JSON encoder (sealed)', () {
+    test('Circle includes type discriminator', () {
+      final ast = shapeJsonEncoder.encode(Circle(3.14));
+      final json = serializeJson(ast);
+      expect(json, contains('"type":"Circle"'));
+      expect(json, contains('"radius":'));
+    });
+
+    test('Rectangle includes type discriminator', () {
+      final ast = shapeJsonEncoder.encode(Rectangle(2.0, 4.0));
+      final json = serializeJson(ast);
+      expect(json, contains('"type":"Rectangle"'));
     });
   });
 }

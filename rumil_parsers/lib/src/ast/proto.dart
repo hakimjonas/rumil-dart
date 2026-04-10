@@ -1,6 +1,8 @@
 /// Protocol Buffers .proto schema AST types.
 library;
 
+import '_equality.dart';
+
 /// Scalar field types.
 enum ProtoScalar {
   /// 64-bit float.
@@ -62,6 +64,12 @@ final class ScalarType extends ProtoType {
 
   /// Creates a scalar type.
   const ScalarType(this.scalar);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is ScalarType && other.scalar == scalar;
+  @override
+  int get hashCode => scalar.hashCode;
 }
 
 /// A reference to a message or enum type by name.
@@ -71,6 +79,12 @@ final class NamedType extends ProtoType {
 
   /// Creates a named type reference.
   const NamedType(this.name);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is NamedType && other.name == name;
+  @override
+  int get hashCode => name.hashCode;
 }
 
 /// A map field type.
@@ -83,6 +97,15 @@ final class MapType extends ProtoType {
 
   /// Creates a map type.
   const MapType(this.keyType, this.valueType);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MapType &&
+          other.keyType == keyType &&
+          other.valueType == valueType;
+  @override
+  int get hashCode => Object.hash(keyType, valueType);
 }
 
 /// A repeated (list) field type.
@@ -92,6 +115,13 @@ final class RepeatedType extends ProtoType {
 
   /// Creates a repeated type.
   const RepeatedType(this.elementType);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RepeatedType && other.elementType == elementType;
+  @override
+  int get hashCode => elementType.hashCode;
 }
 
 /// Field rule in proto3.
@@ -122,6 +152,17 @@ class ProtoField {
 
   /// Creates a field definition.
   const ProtoField(this.rule, this.type, this.name, this.number);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoField &&
+          other.rule == rule &&
+          other.type == type &&
+          other.name == name &&
+          other.number == number;
+  @override
+  int get hashCode => Object.hash(rule, type, name, number);
 }
 
 /// An enum value definition.
@@ -134,6 +175,13 @@ class ProtoEnumValue {
 
   /// Creates an enum value.
   const ProtoEnumValue(this.name, this.number);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoEnumValue && other.name == name && other.number == number;
+  @override
+  int get hashCode => Object.hash(name, number);
 }
 
 /// An RPC method definition.
@@ -161,6 +209,19 @@ class ProtoMethod {
     this.inputStreaming = false,
     this.outputStreaming = false,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoMethod &&
+          other.name == name &&
+          other.inputType == inputType &&
+          other.outputType == outputType &&
+          other.inputStreaming == inputStreaming &&
+          other.outputStreaming == outputStreaming;
+  @override
+  int get hashCode =>
+      Object.hash(name, inputType, outputType, inputStreaming, outputStreaming);
 }
 
 /// A top-level .proto definition.
@@ -182,6 +243,16 @@ final class ProtoMessageDef extends ProtoDefinition {
 
   /// Creates a message definition.
   const ProtoMessageDef(this.name, this.fields, [this.nested = const []]);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoMessageDef &&
+          other.name == name &&
+          listEquals(fields, other.fields) &&
+          listEquals(nested, other.nested);
+  @override
+  int get hashCode => Object.hash(name, listHash(fields), listHash(nested));
 }
 
 /// An enum definition.
@@ -194,6 +265,15 @@ final class ProtoEnumDef extends ProtoDefinition {
 
   /// Creates an enum definition.
   const ProtoEnumDef(this.name, this.values);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoEnumDef &&
+          other.name == name &&
+          listEquals(values, other.values);
+  @override
+  int get hashCode => Object.hash(name, listHash(values));
 }
 
 /// A service definition.
@@ -206,6 +286,15 @@ final class ProtoServiceDef extends ProtoDefinition {
 
   /// Creates a service definition.
   const ProtoServiceDef(this.name, this.methods);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoServiceDef &&
+          other.name == name &&
+          listEquals(methods, other.methods);
+  @override
+  int get hashCode => Object.hash(name, listHash(methods));
 }
 
 /// An import statement.
@@ -218,6 +307,13 @@ final class ProtoImport extends ProtoDefinition {
 
   /// Creates an import.
   const ProtoImport(this.path, {this.isPublic = false});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoImport && other.path == path && other.isPublic == isPublic;
+  @override
+  int get hashCode => Object.hash(path, isPublic);
 }
 
 /// A package declaration.
@@ -227,6 +323,12 @@ final class ProtoPackage extends ProtoDefinition {
 
   /// Creates a package declaration.
   const ProtoPackage(this.name);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is ProtoPackage && other.name == name;
+  @override
+  int get hashCode => name.hashCode;
 }
 
 /// A parsed .proto file.
@@ -239,4 +341,13 @@ class ProtoFile {
 
   /// Creates a proto file.
   const ProtoFile(this.syntax, this.definitions);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProtoFile &&
+          other.syntax == syntax &&
+          listEquals(definitions, other.definitions);
+  @override
+  int get hashCode => Object.hash(syntax, listHash(definitions));
 }

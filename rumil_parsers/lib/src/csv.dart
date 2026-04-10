@@ -22,6 +22,9 @@ class CsvConfig {
   /// Whether to skip empty lines.
   final bool skipEmptyLines;
 
+  /// Line ending for serialization (`\r\n` for RFC 4180, `\n` for Unix).
+  final String lineEnding;
+
   /// Creates a CSV configuration.
   const CsvConfig({
     this.delimiter = ',',
@@ -29,6 +32,7 @@ class CsvConfig {
     this.escape = '"',
     this.trimWhitespace = false,
     this.skipEmptyLines = false,
+    this.lineEnding = '\r\n',
   });
 }
 

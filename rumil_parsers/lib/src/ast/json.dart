@@ -1,6 +1,8 @@
 /// JSON AST types.
 library;
 
+import '_equality.dart';
+
 /// A JSON value.
 sealed class JsonValue {
   /// Base constructor.
@@ -11,6 +13,11 @@ sealed class JsonValue {
 final class JsonNull extends JsonValue {
   /// Creates a null value.
   const JsonNull();
+
+  @override
+  bool operator ==(Object other) => identical(this, other) || other is JsonNull;
+  @override
+  int get hashCode => 0;
   @override
   String toString() => 'null';
 }
@@ -22,6 +29,12 @@ final class JsonBool extends JsonValue {
 
   /// Creates a boolean value.
   const JsonBool(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is JsonBool && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
   @override
   String toString() => '$value';
 }
@@ -33,6 +46,12 @@ final class JsonNumber extends JsonValue {
 
   /// Creates a number value.
   const JsonNumber(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is JsonNumber && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
   @override
   String toString() =>
       value == value.truncateToDouble() ? value.toInt().toString() : '$value';
@@ -45,6 +64,12 @@ final class JsonString extends JsonValue {
 
   /// Creates a string value.
   const JsonString(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is JsonString && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
   @override
   String toString() => '"$value"';
 }
@@ -56,6 +81,13 @@ final class JsonArray extends JsonValue {
 
   /// Creates an array value.
   const JsonArray(this.elements);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is JsonArray && listEquals(elements, other.elements);
+  @override
+  int get hashCode => listHash(elements);
   @override
   String toString() => '[${elements.join(', ')}]';
 }
@@ -67,6 +99,13 @@ final class JsonObject extends JsonValue {
 
   /// Creates an object value.
   const JsonObject(this.fields);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is JsonObject && mapEquals(fields, other.fields);
+  @override
+  int get hashCode => mapHash(fields);
   @override
   String toString() =>
       '{${fields.entries.map((e) => '"${e.key}": ${e.value}').join(', ')}}';

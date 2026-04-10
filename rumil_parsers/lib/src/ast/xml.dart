@@ -1,6 +1,8 @@
 /// XML AST types.
 library;
 
+import '_equality.dart';
+
 /// Qualified name with optional namespace prefix.
 class QName {
   /// The namespace prefix, or null for unprefixed names.
@@ -24,6 +26,7 @@ class QName {
 
   @override
   bool operator ==(Object other) =>
+      identical(this, other) ||
       other is QName && prefix == other.prefix && localName == other.localName;
   @override
   int get hashCode => Object.hash(prefix, localName);
@@ -53,8 +56,26 @@ final class XmlElement extends XmlNode {
 
   /// Creates an element.
   const XmlElement(this.name, this.attributes, this.children);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is XmlElement &&
+          name == other.name &&
+          _attrListEquals(attributes, other.attributes) &&
+          listEquals(children, other.children);
+  @override
+  int get hashCode => Object.hash(name, listHash(children));
   @override
   String toString() => '<${name.format()}>';
+}
+
+bool _attrListEquals(List<XmlAttribute> a, List<XmlAttribute> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].name != b[i].name || a[i].value != b[i].value) return false;
+  }
+  return true;
 }
 
 /// A text node.
@@ -64,6 +85,12 @@ final class XmlText extends XmlNode {
 
   /// Creates a text node.
   const XmlText(this.content);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is XmlText && other.content == content;
+  @override
+  int get hashCode => content.hashCode;
   @override
   String toString() => content;
 }
@@ -75,6 +102,12 @@ final class XmlCData extends XmlNode {
 
   /// Creates a CDATA node.
   const XmlCData(this.content);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is XmlCData && other.content == content;
+  @override
+  int get hashCode => content.hashCode;
 }
 
 /// An XML comment.
@@ -84,6 +117,12 @@ final class XmlComment extends XmlNode {
 
   /// Creates a comment node.
   const XmlComment(this.content);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is XmlComment && other.content == content;
+  @override
+  int get hashCode => content.hashCode;
 }
 
 /// A processing instruction.
@@ -96,6 +135,13 @@ final class XmlPI extends XmlNode {
 
   /// Creates a processing instruction.
   const XmlPI(this.target, this.content);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is XmlPI && other.target == target && other.content == content;
+  @override
+  int get hashCode => Object.hash(target, content);
 }
 
 /// XML document.
