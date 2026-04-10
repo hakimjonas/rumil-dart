@@ -1,4 +1,4 @@
-## 0.1.1
+## 0.2.0
 
 - Doc comments on all public API elements.
 
