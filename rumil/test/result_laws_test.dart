@@ -1,4 +1,4 @@
-import 'package:rumil/rumil.dart' hide fail;
+import 'package:rumil/rumil.dart';
 import 'package:test/test.dart';
 
 /// Test the algebraic laws that Result must satisfy.

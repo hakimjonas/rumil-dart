@@ -1,4 +1,4 @@
-import 'package:rumil/rumil.dart' hide fail;
+import 'package:rumil/rumil.dart';
 import 'package:test/test.dart';
 
 T val<T>(Result<Object?, T> r) => switch (r) {

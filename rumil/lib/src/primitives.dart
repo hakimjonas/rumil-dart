@@ -10,7 +10,7 @@ import 'radix.dart';
 Parser<E, A> succeed<E, A>(A value) => Succeed<E, A>(value);
 
 /// Always fails with [error], consuming no input.
-Parser<E, A> fail<E, A>(E error) => Fail<E, A>(error);
+Parser<E, A> failure<E, A>(E error) => Fail<E, A>(error);
 
 /// Parses a specific single character.
 Parser<ParseError, String> char(String c) => Satisfy((ch) => ch == c, "'$c'");
@@ -95,6 +95,11 @@ Parser<ParseError, A> keywords<A>(Map<String, A> mappings) {
 }
 
 /// Wraps [parser] to consume trailing whitespace.
+///
+/// Every atom in a grammar should consume its own trailing whitespace
+/// (either via [lexeme] or a manual whitespace parser). If an atom
+/// doesn't, downstream combinators like `chainl1` will fail to match
+/// the operator between terms.
 Parser<ParseError, A> lexeme<A>(Parser<ParseError, A> parser) =>
     Mapped<ParseError, (A, List<String>), A>(
       Zip<ParseError, A, List<String>>(parser, spaces()),
@@ -114,5 +119,10 @@ Parser<E, A> defer<E, A>(Parser<E, A> Function() thunk) => Defer<E, A>(thunk);
 ///
 /// Left-recursive rules like `expr -> expr '+' term | term` work
 /// without grammar transformation.
+///
+/// Place `rule()` at the level where left recursion occurs (e.g.
+/// chained postfix operations). For binary operator precedence, use
+/// `chainl1` instead and make the rule the operand of the lowest
+/// `chainl1` layer.
 Parser<E, A> rule<E, A>(Parser<E, A> Function() thunk) =>
     Memo<E, A>(Defer<E, A>(thunk), MemoKey<E, A>(), enableLR: true);

@@ -192,10 +192,10 @@ Parser<ParseError, List<XmlNode>> _xmlContent(XmlConfig config) {
       _cdataSection |
       (config.parseComments
           ? _xmlComment
-          : fail<ParseError, XmlNode>(CustomError('', Location.zero))) |
+          : failure<ParseError, XmlNode>(CustomError('', Location.zero))) |
       (config.parseProcessingInstructions
           ? _processingInstruction()
-          : fail<ParseError, XmlNode>(CustomError('', Location.zero))) |
+          : failure<ParseError, XmlNode>(CustomError('', Location.zero))) |
       _xmlElement(config) |
       _textContent(config);
 

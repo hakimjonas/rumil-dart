@@ -1,4 +1,4 @@
-import 'package:rumil/rumil.dart' hide fail;
+import 'package:rumil/rumil.dart';
 import 'package:rumil_parsers/rumil_parsers.dart';
 import 'package:test/test.dart';
 
