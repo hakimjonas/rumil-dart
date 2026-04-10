@@ -7,8 +7,10 @@ import 'dart:typed_data';
 final class ByteWriter {
   final BytesBuilder _builder = BytesBuilder(copy: false);
 
+  /// Append a single byte.
   void writeByte(int byte) => _builder.addByte(byte);
 
+  /// Append raw bytes.
   void writeBytes(Uint8List bytes) => _builder.add(bytes);
 
   /// Write a 64-bit IEEE 754 double in big-endian byte order.
@@ -17,7 +19,9 @@ final class ByteWriter {
     _builder.add(data.buffer.asUint8List());
   }
 
+  /// Return the accumulated bytes.
   Uint8List toBytes() => _builder.toBytes();
 
+  /// Number of bytes written so far.
   int get length => _builder.length;
 }

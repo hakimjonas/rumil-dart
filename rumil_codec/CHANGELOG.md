@@ -1,3 +1,7 @@
+## 0.1.1
+
+- Doc comments on all public API elements.
+
 ## 0.1.0
 
 - Core parser combinators: sealed Parser ADT with 26 subtypes, external interpreter, defunctionalized trampoline

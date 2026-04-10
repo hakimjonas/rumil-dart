@@ -8,11 +8,13 @@ import 'byte_writer.dart';
 
 /// Encodes values of type [A] to bytes.
 abstract interface class Encoder<A> {
+  /// Write [value] to [writer].
   void write(ByteWriter writer, A value);
 }
 
 /// Decodes values of type [A] from bytes.
 abstract interface class Decoder<A> {
+  /// Read a value from [reader].
   A read(ByteReader reader);
 }
 
@@ -21,12 +23,14 @@ abstract interface class BinaryCodec<A> implements Encoder<A>, Decoder<A> {}
 
 /// Convenience methods on [BinaryCodec].
 extension BinaryCodecExt<A> on BinaryCodec<A> {
+  /// Encode [value] to a byte array.
   Uint8List encode(A value) {
     final writer = ByteWriter();
     write(writer, value);
     return writer.toBytes();
   }
 
+  /// Decode a value from [bytes].
   A decode(Uint8List bytes) {
     final reader = ByteReader(bytes);
     return read(reader);
@@ -39,11 +43,13 @@ extension BinaryCodecExt<A> on BinaryCodec<A> {
 
 /// Functor map on [Decoder].
 extension DecoderMap<A> on Decoder<A> {
+  /// Transform the decoded value.
   Decoder<B> map<B>(B Function(A) f) => _MappedDecoder<A, B>(this, f);
 }
 
 /// Contravariant map on [Encoder].
 extension EncoderContramap<A> on Encoder<A> {
+  /// Adapt the encoder to accept a different input type.
   Encoder<B> contramap<B>(A Function(B) f) =>
       _ContramappedEncoder<A, B>(this, f);
 }
