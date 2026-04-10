@@ -1,3 +1,10 @@
+## 0.2.0
+
+- **Breaking:** `fail()` renamed to `failure()` to avoid conflict with `package:test`.
+- Doc comments on all public API elements.
+- `rule()` doc: guidance on placement (postfix level, not top level).
+- `lexeme()` doc: note about whitespace handling for `chainl1` operands.
+
 ## 0.1.0
 
 - Core parser combinators: sealed Parser ADT with 26 subtypes, external interpreter, defunctionalized trampoline

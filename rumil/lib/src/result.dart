@@ -14,8 +14,13 @@ sealed class Result<E, A> {
 
 /// Parse succeeded with no errors.
 final class Success<E, A> extends Result<E, A> {
+  /// The parsed value.
   final A value;
+
+  /// Number of input characters consumed.
   final int consumed;
+
+  /// Creates a successful result.
   const Success(this.value, this.consumed) : super._();
 
   @override
@@ -24,13 +29,22 @@ final class Success<E, A> extends Result<E, A> {
 
 /// Parse succeeded but accumulated errors (resilient parsing).
 final class Partial<E, A> extends Result<E, A> {
+  /// The parsed value.
   final A value;
+
+  /// Number of input characters consumed.
   final int consumed;
+
+  /// Lazy error thunk, evaluated on first access of [errors].
   final List<E> Function() errorThunk;
+
+  /// Materialized errors (evaluated once from [errorThunk]).
   late final List<E> errors = errorThunk();
 
+  /// Creates a partial result with lazy errors.
   Partial(this.value, this.errorThunk, this.consumed) : super._();
 
+  /// Creates a partial result with pre-computed errors.
   Partial.eager(this.value, List<E> errors, this.consumed)
     : errorThunk = (() => errors),
       super._();
@@ -39,16 +53,23 @@ final class Partial<E, A> extends Result<E, A> {
   String toString() => 'Partial($value, errors: $errors, consumed: $consumed)';
 }
 
-/// Parse failed — no value produced.
+/// Parse failed, no value produced.
 ///
-/// [furthest] tracks the deepest position reached, used for diagnostics.
+/// [furthest] tracks the deepest position reached, for diagnostics.
 final class Failure<E, A> extends Result<E, A> {
+  /// The deepest input position reached before failure.
   final Location furthest;
+
+  /// Lazy error thunk, evaluated on first access of [errors].
   final List<E> Function() errorThunk;
+
+  /// Materialized errors (evaluated once from [errorThunk]).
   late final List<E> errors = errorThunk();
 
+  /// Creates a failure with lazy errors.
   Failure(this.errorThunk, this.furthest) : super._();
 
+  /// Creates a failure with pre-computed errors.
   Failure.eager(List<E> errors, this.furthest)
     : errorThunk = (() => errors),
       super._();
@@ -59,8 +80,13 @@ final class Failure<E, A> extends Result<E, A> {
 
 /// Convenience extensions on [Result].
 extension ResultOps<E, A> on Result<E, A> {
+  /// True if this is a [Success].
   bool get isSuccess => this is Success<E, A>;
+
+  /// True if this is a [Partial].
   bool get isPartial => this is Partial<E, A>;
+
+  /// True if this is a [Failure].
   bool get isFailure => this is Failure<E, A>;
 
   /// The value if [Success] or [Partial], `null` if [Failure].

@@ -11,6 +11,7 @@ import 'dart:math' as math;
 /// Use [RadixNode.fromStrings] to build a tree, then [matchAtOrNull]
 /// or [matchAt] to match against input.
 final class RadixNode {
+  /// The string matched so far at this node (empty at root).
   final String matched;
   final bool _isTerminal;
   final int _bitMask;
