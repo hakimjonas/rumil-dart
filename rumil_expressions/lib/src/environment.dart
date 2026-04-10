@@ -71,5 +71,6 @@ class EvalException implements Exception {
   const EvalException(this.message);
 
   @override
+  /// Returns `'EvalException: $message'`.
   String toString() => 'EvalException: $message';
 }
