@@ -1,6 +1,7 @@
 /// AST to native Dart type converters.
 library;
 
+import '../ast/hcl.dart';
 import '../ast/json.dart';
 import '../ast/toml.dart';
 import '../ast/xml.dart';
@@ -83,6 +84,27 @@ Object? xmlToNative(XmlNode node) => switch (node) {
   XmlCData(:final content) => content,
   XmlComment() => null,
   XmlPI() => null,
+};
+
+/// Convert an [HclValue] to native Dart types.
+///
+/// Blocks include `_type` and `_labels` metadata fields.
+Object? hclToNative(HclValue v) => switch (v) {
+  HclString(:final value) => value,
+  HclNumber(:final value) => value,
+  HclBool(:final value) => value,
+  HclNull() => null,
+  HclList(:final elements) => [for (final e in elements) hclToNative(e)],
+  HclObject(:final fields) => {
+    for (final MapEntry(:key, :value) in fields.entries)
+      key: hclToNative(value),
+  },
+  HclBlock(:final type, :final labels, :final body) => {
+    '_type': type,
+    '_labels': labels,
+    for (final MapEntry(:key, :value) in body.entries) key: hclToNative(value),
+  },
+  HclReference(:final path) => path,
 };
 
 String _pad(int n) => n.toString().padLeft(2, '0');

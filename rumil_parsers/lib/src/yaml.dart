@@ -1,4 +1,4 @@
-/// Simplified YAML 1.2 parser.
+/// YAML 1.2 parser with indentation-based nesting.
 library;
 
 import 'package:rumil/rumil.dart';
@@ -26,6 +26,10 @@ final Parser<ParseError, void> _blankLine = common.hspaces().skipThen(
   _yamlComment | common.newline().as<void>(null),
 );
 
+final Parser<ParseError, void> _lineEnd = common.hspaces().skipThen(
+  _yamlComment | common.newline().as<void>(null) | eof(),
+);
+
 // ---- Scalars ----
 
 final Parser<ParseError, YamlValue> _yamlNull = stringIn([
@@ -42,10 +46,10 @@ final Parser<ParseError, YamlValue> _yamlBoolean = keywords<YamlValue>({
   'off': const YamlBool(false),
 });
 
-final Parser<ParseError, YamlValue> _yamlInteger = (common
+final Parser<ParseError, YamlValue> _yamlInteger = common
     .signedInt()
     .thenSkip(oneOf('.eE').notFollowedBy)
-    .map<YamlValue>(YamlInteger.new));
+    .map<YamlValue>(YamlInteger.new);
 
 final Parser<ParseError, YamlValue> _yamlFloat = common
     .floatingPoint()
@@ -135,40 +139,117 @@ final Parser<ParseError, YamlValue> _flowMapping = () {
       );
 }();
 
-// ---- Block collections ----
+// ---- Inline value (flow or scalar, same line) ----
 
-final Parser<ParseError, YamlValue> _blockSequence = () {
-  final item = char('-')
-      .skipThen(common.hspaces1())
-      .skipThen(_yamlScalar)
-      .thenSkip(common.newline().optional);
+final Parser<ParseError, YamlValue> _inlineValue =
+    _flowSequence | _flowMapping | _yamlScalar;
 
-  return item.many1.map<YamlValue>(YamlSequence.new);
-}();
+// ---- Indentation helpers ----
 
-final Parser<ParseError, YamlValue> _blockMapping = () {
-  final key = satisfy(
-    (c) => c != ':' && c != '\n' && c != '#',
-    'key char',
-  ).many1.map((cs) => cs.join().trim());
+Parser<ParseError, void> _indent(int n) =>
+    n == 0
+        ? succeed<ParseError, void>(null)
+        : char(' ').times(n).as<void>(null);
 
-  final pair = key.flatMap(
-    (k) => char(':')
-        .skipThen(common.hspaces1() | common.newline().map((_) => <String>[]))
-        .skipThen(_yamlScalar)
-        .flatMap((v) => common.newline().optional.map((_) => (k, v))),
+final Parser<ParseError, int> _peekIndent = char(
+  ' ',
+).many.capture.lookAhead.map((s) => s.length);
+
+// ---- Block mapping key ----
+
+final Parser<ParseError, String> _blockKey = satisfy(
+  (c) => c != ':' && c != '\n' && c != '#',
+  'key char',
+).many1.map((cs) => cs.join().trim());
+
+// ---- Indentation-aware block parsing ----
+
+Parser<ParseError, YamlValue> _blockValueAt(int minIndent) =>
+    _peekIndent.flatMap((actual) {
+      if (actual < minIndent) {
+        return failure<ParseError, YamlValue>(
+          CustomError(
+            'expected indent >= $minIndent, got $actual',
+            Location.zero,
+          ),
+        );
+      }
+      // Sequence before mapping: '- ' at line start would match as a
+      // mapping key otherwise (since '-' passes the key predicate).
+      return _blockSequenceAt(actual) |
+          _blockMappingAt(actual) |
+          _indent(actual).skipThen(_inlineValue).thenSkip(_lineEnd);
+    });
+
+Parser<ParseError, YamlValue> _blockMappingAt(int indent) {
+  final entry = _indent(indent).skipThen(
+    _blockKey.flatMap(
+      (key) => char(':')
+          .skipThen(
+            // Inline value on same line
+            common.hspaces1().skipThen(_inlineValue).thenSkip(_lineEnd) |
+                // Nested value on next line(s)
+                _lineEnd.skipThen(defer(() => _blockValueAt(indent + 1))),
+          )
+          .map((value) => (key, value)),
+    ),
   );
 
-  return pair.many1.map<YamlValue>(
+  return entry.many1.map<YamlValue>(
     (pairs) =>
         YamlMapping(Map.fromEntries(pairs.map((p) => MapEntry(p.$1, p.$2)))),
   );
-}();
+}
 
-// ---- Value ----
+Parser<ParseError, YamlValue> _blockSequenceAt(int indent) {
+  // Parse one key: value pair inline (right after "- ")
+  final inlineEntry = _blockKey.flatMap(
+    (key) => char(':')
+        .skipThen(
+          common.hspaces1().skipThen(_inlineValue).thenSkip(_lineEnd) |
+              _lineEnd.skipThen(defer(() => _blockValueAt(indent + 2))),
+        )
+        .map((value) => (key, value)),
+  );
+
+  // Compact mapping: first entry inline, then more at indent + 2
+  final compactMapping = inlineEntry.flatMap(
+    (first) => defer(() => _blockMappingAt(indent + 2)).optional.map((rest) {
+      final entries = <(String, YamlValue)>[first];
+      if (rest case YamlMapping(:final pairs)) {
+        entries.addAll(
+          pairs.entries.map(
+            (MapEntry<String, YamlValue> e) => (e.key, e.value),
+          ),
+        );
+      }
+      return YamlMapping(
+            Map.fromEntries(entries.map((p) => MapEntry(p.$1, p.$2))),
+          )
+          as YamlValue;
+    }),
+  );
+
+  final item = _indent(indent).skipThen(
+    char('-')
+        .skipThen(common.hspaces1())
+        .skipThen(
+          // Compact nested mapping: "- key: value\n    key2: value2"
+          compactMapping |
+              // Inline value on same line after "- "
+              _inlineValue.thenSkip(_lineEnd) |
+              // Nested value on next line
+              _lineEnd.skipThen(defer(() => _blockValueAt(indent + 2))),
+        ),
+  );
+
+  return item.many1.map<YamlValue>(YamlSequence.new);
+}
+
+// ---- Top-level value ----
 
 final Parser<ParseError, YamlValue> _yamlValue =
-    _flowSequence | _flowMapping | _blockSequence | _blockMapping | _yamlScalar;
+    _flowSequence | _flowMapping | _blockValueAt(0);
 
 // ---- Document ----
 

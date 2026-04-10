@@ -130,4 +130,65 @@ void main() {
       expect((pairs['name'] as YamlString).value, 'Alice');
     });
   });
+
+  group('Nested indentation', () {
+    test('mapping with nested mapping', () {
+      final v = doc_(parseYaml('metadata:\n  name: my-app\n  version: 1.0\n'));
+      final meta = (v as YamlMapping).pairs['metadata'] as YamlMapping;
+      expect((meta.pairs['name'] as YamlString).value, 'my-app');
+    });
+
+    test('mapping with nested sequence', () {
+      final v = doc_(parseYaml('tags:\n  - admin\n  - user\n'));
+      final tags = (v as YamlMapping).pairs['tags'] as YamlSequence;
+      expect(tags.elements.length, 2);
+      expect((tags.elements[0] as YamlString).value, 'admin');
+    });
+
+    test('deeply nested mapping', () {
+      final v = doc_(parseYaml('a:\n  b:\n    c: deep\n'));
+      final a = (v as YamlMapping).pairs['a'] as YamlMapping;
+      final b = a.pairs['b'] as YamlMapping;
+      expect((b.pairs['c'] as YamlString).value, 'deep');
+    });
+
+    test('sequence of mappings (compact notation)', () {
+      final v = doc_(parseYaml(
+          'users:\n  - name: Alice\n    age: 25\n  - name: Bob\n    age: 30\n'));
+      final users = (v as YamlMapping).pairs['users'] as YamlSequence;
+      expect(users.elements.length, 2);
+      final alice = users.elements[0] as YamlMapping;
+      expect((alice.pairs['name'] as YamlString).value, 'Alice');
+      expect((alice.pairs['age'] as YamlInteger).value, 25);
+    });
+
+    test('mixed nesting', () {
+      final v = doc_(parseYaml(
+          'database:\n  host: localhost\n  ports:\n    - 5432\n    - 5433\n'));
+      final db = (v as YamlMapping).pairs['database'] as YamlMapping;
+      expect((db.pairs['host'] as YamlString).value, 'localhost');
+      final ports = db.pairs['ports'] as YamlSequence;
+      expect(ports.elements.length, 2);
+    });
+
+    test('real-world: k8s-like config', () {
+      final v = doc_(parseYaml('''
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  labels:
+    app: my-app
+spec:
+  replicas: 3
+'''));
+      final root = v as YamlMapping;
+      expect((root.pairs['apiVersion'] as YamlString).value, 'apps/v1');
+      final metadata = root.pairs['metadata'] as YamlMapping;
+      final labels = metadata.pairs['labels'] as YamlMapping;
+      expect((labels.pairs['app'] as YamlString).value, 'my-app');
+      expect((root.pairs['spec'] as YamlMapping).pairs['replicas'],
+          const YamlInteger(3));
+    });
+  });
 }

@@ -2,6 +2,7 @@
 library;
 
 // AST types
+export 'src/ast/hcl.dart';
 export 'src/ast/json.dart';
 export 'src/ast/proto.dart';
 export 'src/ast/toml.dart';
@@ -22,6 +23,7 @@ export 'src/csv.dart'
         CsvDocument,
         defaultCsvConfig,
         defaultTsvConfig;
+export 'src/hcl.dart' show parseHcl;
 export 'src/json.dart' show parseJson;
 export 'src/proto.dart' show parseProto;
 export 'src/toml.dart' show parseToml;
@@ -45,4 +47,5 @@ export 'src/encode/yaml_encoders.dart';
 
 // Serializers (AST → string)
 export 'src/encode/csv_encoders.dart';
+export 'src/encode/hcl_encoders.dart';
 export 'src/encode/proto_encoders.dart' show serializeProto;
