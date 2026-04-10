@@ -3,17 +3,20 @@ library;
 
 /// Decodes a value of AST type [AST] into a Dart value of type [A].
 abstract interface class AstDecoder<AST, A> {
+  /// Decode [value] into type [A]. Throws [DecodeException] on type mismatch.
   A decode(AST value);
 }
 
 /// Functor map on [AstDecoder].
 extension AstDecoderOps<AST, A> on AstDecoder<AST, A> {
+  /// Transform the decoded value.
   AstDecoder<AST, B> map<B>(B Function(A) f) =>
       _MappedAstDecoder<AST, A, B>(this, f);
 }
 
 /// Navigates struct-like AST nodes (objects, tables, mappings).
 abstract interface class AstStruct<AST> {
+  /// Get the field named [name] from [value], or null if absent.
   AST? getField(AST value, String name);
 }
 
@@ -22,6 +25,7 @@ final class ObjectAccessor<AST> {
   final AST _value;
   final AstStruct<AST> _struct;
 
+  /// Creates an accessor over [_value] using [_struct] for field lookup.
   const ObjectAccessor(this._value, this._struct);
 
   /// Extract a required field and decode it.
@@ -41,8 +45,12 @@ final class ObjectAccessor<AST> {
 
 /// Error thrown when AST decoding fails.
 class DecodeException implements Exception {
+  /// The error message.
   final String message;
+
+  /// Creates a decode exception.
   const DecodeException(this.message);
+
   @override
   String toString() => 'DecodeException: $message';
 }

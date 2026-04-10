@@ -1,3 +1,8 @@
+## 0.2.0
+
+- Doc comments on all public API elements.
+- Depends on rumil ^0.2.0 (`fail` renamed to `failure`).
+
 ## 0.1.0
 
 - Core parser combinators: sealed Parser ADT with 26 subtypes, external interpreter, defunctionalized trampoline

@@ -1,3 +1,7 @@
+## 0.2.0
+
+- Depends on rumil_codec ^0.2.0 (version aligned).
+
 ## 0.1.1
 
 - Move sample code to example/ for correct pub.dev analysis

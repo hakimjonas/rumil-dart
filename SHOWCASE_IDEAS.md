@@ -253,36 +253,68 @@ Each ring is self-contained and shippable. Build from the core outward.
 - Aggregation: sum, avg, min, max
 - *This is where it stops being "jq but Dart" and becomes its own thing.*
 
-**Ring 4 — Power tools**
-- `--schema` for structure inference
-- `--to yaml/toml/json` for format conversion (nearly free)
-- `--assert` for CI/CD validation
-- Slicing `[1:3]`, negative indexing `[-1]`
-- *Each of these is small but high-delight.*
+**Ring 4 — Pipeline completeness** (closing the jq gap)
+- `sort_by(.field)`, `group_by(.field)`, `unique`, `unique_by(.field)`
+- `flatten`
+- `filter_values(pred)`, `map_values(transform)`, `filter_keys(pred)` — map operations without the jq to_entries/from_entries dance
+- Object construction: `map({name, total: .price * .qty})` with shorthand (`{name}` = `{name: .name}`)
+- Conditionals: `if .age > 65 then "senior" else "active"` (no `end` keyword)
+- *This is where Lambé covers ~80% of real jq usage with cleaner syntax.*
 
-**Ring 5 — Interactive**
-- REPL with tab completion on field names
-- Object/array construction: `map({name: .name, total: .price * .qty})`
-- Conditionals: `if .age > 65 then "senior" else "active"`
+**Ring 5 — Expression completeness**
 - String interpolation: `"\(.name) is \(.age)"`
-- *The REPL changes the tool from "I know what I want" to "I'm exploring."*
+- Slicing: `[1:3]`
+- `to_entries` / `from_entries` (for the remaining 20%)
+- `has(.field)` — field existence check
+- *Closes the last common gaps.*
 
-**Ring 6 — Ecosystem integration**
+**Ring 6 — Power tools + ecosystem**
+- `--schema` for structure inference
+- `--to yaml/toml/json` for format conversion
+- `--assert` for CI/CD validation
+- REPL with tab completion on field names
 - MCP server (AI agent tool-use)
-- Browser playground (dart2wasm)
-- `--watch` mode
 - `lambe_test` package (test matchers for Dart)
-- *This is where the three personas fully converge.*
+- *Polish and ecosystem integration.*
 
 **Ring 7 — Horizon** (stretch goals)
+- Browser playground (dart2wasm)
+- `--watch` mode
 - User-defined functions: `def adults: filter(.age >= 18)`
 - Streaming / JSONL for large files
 - Shell completion (bash, zsh, fish)
 - HCL/Terraform parsing (big effort, huge payoff for DevOps persona)
 
+### Design philosophy: data transformations, not filters
+
+jq models everything as filters that implicitly pipe. Lambé models operations as **named data transformations** — the vocabulary of Spark DataFrames and SQL, not Unix pipes:
+
+| Concept | SQL | Spark DataFrame | jq | Lambé |
+|---------|-----|-----------------|-----|-------|
+| Filter rows | `WHERE age > 30` | `.filter(col("age") > 30)` | `select(.age > 30)` | `filter(.age > 30)` |
+| Project columns | `SELECT name` | `.select("name")` | `.name` | `map(.name)` |
+| Sort | `ORDER BY age` | `.orderBy("age")` | `sort_by(.age)` | `sort_by(.age)` |
+| Group | `GROUP BY type` | `.groupBy("type")` | `group_by(.type)` | `group_by(.type)` |
+| Aggregate | `SUM(price)` | `.agg(sum("price"))` | `map(.price) \| add` | `map(.price) \| sum` |
+| Count | `COUNT(*)` | `.count()` | `length` | `length` |
+
+Anyone who thinks in data transformations — SQL, Spark, pandas, LINQ — reads Lambé and gets it immediately. jq requires learning jq.
+
+### Ergonomic wins over jq
+
+| Pain point | jq | Lambé |
+|------------|-----|-------|
+| Naming | Implicit (everything is a filter) | Explicit (`filter`, `map`, `sort_by`) |
+| group_by result | `[[items], [items]]` — no keys | `[{key, values}]` — self-describing |
+| Object shorthand | None (`{name: .name}`) | `{name}` expands to `{name: .name}` |
+| Map filtering | 3 steps (`to_entries \| select \| from_entries`) | 1 step (`filter_values`) |
+| Conditionals | `if ... end` | `if ... else ...` (no `end`) |
+| Error messages | Cryptic | Source-positioned via Rumil |
+| Multi-format | JSON only | JSON, YAML, TOML auto-detected |
+
 ### Sequencing
 
-Rings 0-2 are the focused sprint. A working `lam` command with JSON + pipeline ops. That's the thing you hand to your colleague and say "try this instead of jq." Everything after that is guided by what he actually reaches for.
+Rings 0-3 are done. Ring 4 (pipeline completeness) is the release gate — when Lambé covers ~80% of real jq usage with cleaner syntax, it's ready to ship. Rings 5+ are post-release improvements.
 
 ### Architecture
 
@@ -322,13 +354,11 @@ lambe/
 
 ### Effort estimate
 
-- Rings 0-1: Medium — query AST + parser + evaluator + CLI. Core is ~500-800 LOC.
-- Ring 2: Small — pipeline operations are straightforward.
-- Ring 3: Small — plug in rumil_parsers, add arithmetic.
-- Ring 4: Small — each power tool is a focused feature.
-- Ring 5: Medium — REPL with tab completion is real work.
-- Ring 6: Medium — MCP server + web UI.
-- Ring 7: Large — HCL parsing alone is a significant parser.
+- Rings 0-3: **Done.** 149 tests, ~1700 LOC. Core query engine, pipeline ops, multi-format, aggregation.
+- Ring 4: Medium — `sort_by`/`group_by`/`unique` are new PipeOps + evaluator logic. Object construction and conditionals need new AST nodes + parser additions. ~400-600 LOC.
+- Ring 5: Small — string interpolation needs parser work. Slicing is a parser + evaluator addition. ~200 LOC.
+- Ring 6: Medium — `--schema` is a new traversal. REPL needs `dart:io` interactive mode + tab completion. MCP server is a separate entry point. ~600-800 LOC.
+- Ring 7: Large — HCL parsing alone is a significant parser. Browser playground needs dart2wasm + package:web. ~1000+ LOC.
 
 ### Risks and mitigations
 
@@ -336,6 +366,20 @@ lambe/
 - **Evaluator type safety.** The evaluator operates on dynamic JSON values (maps, lists, primitives). Less clean than the parser. Mitigated by keeping a clear boundary: the parser/AST is fully typed sealed classes, the evaluator works with `Object?` because JSON is untyped by nature.
 - **jq syntax expectations.** Users who know jq will expect jq syntax. Explicitly position Lambé as "jq-inspired but cleaner" — document the differences, provide a migration guide.
 - **Platform engineer adoption.** They don't care about Dart. They care that the binary is fast, handles their formats, and doesn't require a runtime. AOT compilation handles this — the binary is self-contained.
+
+### Strongbow synergies (future exploration)
+
+Lambé and Strongbow (typed columnar dataset library for Scala 3 + Spark) share the same paradigm: immutable ASTs describing data transformations, interpreted by pluggable backends. Strongbow targets production pipelines (terabytes, Spark clusters). Lambé targets ad-hoc queries (config files, API responses). Same mental model, different scale.
+
+**0.2.0 candidates:**
+- Window operations: `rank`, `row_number`, `lag(.value, 1)`, `lead` — Strongbow has these, no CLI tool offers them. Unique differentiator for data engineers.
+- Richer aggregations: `count`, `stddev`, `variance`, `median` — Strongbow's full aggregation surface.
+
+**0.3.0+ exploration:**
+- Dual interpreters: same Lambé AST, multiple backends — SQL generation (`lam --to-sql`), jq generation (`lam --to-jq`), or driving a Dart port of Strongbow for columnar execution on large files.
+- Schema-aware queries: infer schema from data, use it for REPL tab completion, error suggestions ("did you mean .name?"), and query validation before execution.
+- Columnar fast path: for large files, evaluate column-by-column instead of row-by-row. Strongbow proves this architecture works.
+- Typed query mode: verify queries against a known schema at compile time (the Strongbow guarantee applied to CLI queries).
 
 ### Why Dart?
 
@@ -443,13 +487,16 @@ Interesting but exercises only rumil_expressions (not the full stack). Less urge
 ## Overall sequencing
 
 ```
-NOW:     Lambé Rings 0-2 (core query + JSON + pipeline + CLI)
-         ↓ proves Rumil handles real workloads
-THEN:    Lambé Ring 3 (multi-format — the differentiator)
-         ↓ becomes genuinely useful
-NEXT:    Playground v0.1 (expression evaluator, AST tree)
-         ↓ educational companion, Wasm showcase
-LATER:   Lambé Rings 4-6 (power tools, REPL, MCP, browser)
-         Playground v0.2 (learning path, exercises)
-SOMEDAY: Lambé Ring 7, Formula Graph, Playground v0.3+
+DONE:    Lambé Rings 0-3 (core query + pipeline + multi-format + aggregation)
+         ↓ 149 tests, JSON/YAML/TOML, filter/map/sort/sum/avg/min/max
+NOW:     Lambé Ring 4 (pipeline completeness — the release gate)
+         ↓ sort_by, group_by, unique, flatten, object construction, conditionals
+         ↓ covers ~80% of real jq usage with cleaner syntax
+THEN:    Lambé Ring 5 (expression completeness)
+         ↓ string interpolation, slicing, has(), to_entries
+PUBLISH: Lambé 0.1.0 on pub.dev
+         ↓ README, CI, benchmarks
+NEXT:    Ring 6 (--schema, REPL, MCP, lambe_test)
+         Playground v0.1
+LATER:   Ring 7, Playground v0.2+, Formula Graph
 ```

@@ -1,3 +1,7 @@
+## 0.2.0
+
+- Depends on rumil ^0.2.0 (`fail` renamed to `failure`).
+
 ## 0.1.1
 
 - Doc comments on all public API elements.

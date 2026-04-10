@@ -7,12 +7,22 @@ import 'common.dart' as common;
 
 /// CSV configuration.
 class CsvConfig {
+  /// Field delimiter character.
   final String delimiter;
+
+  /// Quote character for wrapping fields.
   final String quote;
+
+  /// Escape character within quoted fields.
   final String escape;
+
+  /// Whether to trim whitespace from field values.
   final bool trimWhitespace;
+
+  /// Whether to skip empty lines.
   final bool skipEmptyLines;
 
+  /// Creates a CSV configuration.
   const CsvConfig({
     this.delimiter = ',',
     this.quote = '"',
@@ -22,7 +32,10 @@ class CsvConfig {
   });
 }
 
+/// Default CSV configuration (comma-separated, double-quote).
 const defaultCsvConfig = CsvConfig();
+
+/// Default TSV configuration (tab-separated).
 const defaultTsvConfig = CsvConfig(delimiter: '\t');
 
 /// A CSV document: list of records, each a list of fields.
