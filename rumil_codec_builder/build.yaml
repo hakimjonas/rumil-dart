@@ -1,6 +1,6 @@
 builders:
   codec:
-    import: "package:rumil_codec_builder/builder.dart"
+    import: "package:rumil_codec_builder/rumil_codec_builder.dart"
     builder_factories: ["codecBuilder"]
     build_extensions: {".dart": [".codec.g.dart"]}
     auto_apply: dependents
