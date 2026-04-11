@@ -174,8 +174,6 @@ Parser<ParseError, YamlValue> _blockValueAt(int minIndent) =>
           ),
         );
       }
-      // Sequence before mapping: '- ' at line start would match as a
-      // mapping key otherwise (since '-' passes the key predicate).
       return _blockSequenceAt(actual) |
           _blockMappingAt(actual) |
           _indent(actual).skipThen(_inlineValue).thenSkip(_lineEnd);
@@ -202,7 +200,6 @@ Parser<ParseError, YamlValue> _blockMappingAt(int indent) {
 }
 
 Parser<ParseError, YamlValue> _blockSequenceAt(int indent) {
-  // Parse one key: value pair inline (right after "- ")
   final inlineEntry = _blockKey.flatMap(
     (key) => char(':')
         .skipThen(
@@ -212,7 +209,6 @@ Parser<ParseError, YamlValue> _blockSequenceAt(int indent) {
         .map((value) => (key, value)),
   );
 
-  // Compact mapping: first entry inline, then more at indent + 2
   final compactMapping = inlineEntry.flatMap(
     (first) => defer(() => _blockMappingAt(indent + 2)).optional.map((rest) {
       final entries = <(String, YamlValue)>[first];

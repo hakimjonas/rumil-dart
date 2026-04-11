@@ -1,3 +1,8 @@
+## 0.3.0
+
+- AstEncoderGenerator: generates AstEncoder<T, JsonValue> for @AstSerializable classes.
+- Sealed class support with type discriminator field.
+
 ## 0.2.0
 
 - Depends on rumil_codec ^0.2.0 (version aligned).

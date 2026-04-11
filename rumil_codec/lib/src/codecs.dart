@@ -17,6 +17,7 @@ import 'zigzag.dart';
 
 // ---- Convenience extensions ----
 
+/// Composite codec constructors as getters on [BinaryCodec].
 extension BinaryCodecComposites<A> on BinaryCodec<A> {
   /// Codec for `List<A>` using this codec for elements.
   BinaryCodec<List<A>> get list => _ListCodec<A>(this);

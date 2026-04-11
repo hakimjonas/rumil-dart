@@ -9,6 +9,7 @@ library;
 /// Requires `rumil_codec_builder` as a dev dependency and `build_runner`
 /// to generate the `.codec.g.dart` file.
 class BinarySerializable {
+  /// Creates a binary serializable annotation.
   const BinarySerializable();
 }
 
@@ -19,10 +20,13 @@ const binarySerializable = BinarySerializable();
 enum AstFormat {
   /// Generate `AstEncoder<T, JsonValue>`.
   json,
+
   /// Generate `AstEncoder<T, YamlValue>`.
   yaml,
+
   /// Generate `AstEncoder<T, TomlValue>`.
   toml,
+
   /// Generate `AstEncoder<T, XmlNode>`.
   xml,
 }

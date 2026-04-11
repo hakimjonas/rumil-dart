@@ -1,3 +1,14 @@
+## 0.3.0
+
+- AST encoders + serializers for JSON, TOML, YAML, XML, CSV, Proto3, HCL.
+- AstBuilder with nativeToAst for JSON, YAML, TOML, XML, HCL.
+- Native decoders: jsonToNative, yamlToNative, tomlToNative, xmlToNative, hclToNative.
+- Shared escape utilities.
+- operator == and hashCode on all AST classes.
+- YAML indentation-based nested block parsing.
+- HCL parser (attributes, blocks, comments, references).
+- 278 tests.
+
 ## 0.2.0
 
 - Doc comments on all public API elements.

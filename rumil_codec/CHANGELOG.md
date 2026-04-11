@@ -1,3 +1,7 @@
+## 0.3.0
+
+- Added @AstSerializable annotation and AstFormat enum.
+
 ## 0.2.0
 
 - Doc comments on all public API elements.

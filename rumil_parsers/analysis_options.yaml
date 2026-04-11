@@ -18,3 +18,4 @@ linter:
     - prefer_expression_function_bodies
     - unnecessary_lambdas
     - prefer_single_quotes
+    - public_member_api_docs

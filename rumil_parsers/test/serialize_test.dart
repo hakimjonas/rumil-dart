@@ -14,7 +14,7 @@ JsonValue _json(String input) {
 void main() {
   group('JSON round-trip', () {
     test('compact', () {
-      final input = '{"name":"Alice","age":30,"active":true}';
+      const input = '{"name":"Alice","age":30,"active":true}';
       final ast = _json(input);
       final serialized = serializeJson(ast);
       expect(_json(serialized), ast);
@@ -42,19 +42,19 @@ void main() {
     });
 
     test('nested', () {
-      final input = '{"users":[{"name":"Alice","tags":["admin","user"]}]}';
+      const input = '{"users":[{"name":"Alice","tags":["admin","user"]}]}';
       final ast = _json(input);
       expect(_json(serializeJson(ast)), ast);
     });
 
     test('string escaping', () {
-      final ast = JsonString('line1\nline2\ttab "quote" \\slash');
+      const ast = JsonString('line1\nline2\ttab "quote" \\slash');
       final s = serializeJson(ast);
       expect(s, r'"line1\nline2\ttab \"quote\" \\slash"');
     });
 
     test('control char escaping', () {
-      final ast = JsonString('bell\x07form\x0C');
+      const ast = JsonString('bell\x07form\x0C');
       final s = serializeJson(ast);
       expect(s, contains(r'\u0007'));
       expect(s, contains(r'\f'));
@@ -138,14 +138,14 @@ void main() {
 
   group('TOML round-trip', () {
     test('simple pairs', () {
-      final input = 'name = "Alice"\nage = 30\n';
+      const input = 'name = "Alice"\nage = 30\n';
       final doc = _tomlDoc(input);
       final serialized = serializeToml(doc);
       expect(serializeToml(_tomlDoc(serialized)), serializeToml(doc));
     });
 
     test('nested tables', () {
-      final input =
+      const input =
           'title = "Test"\n\n[server]\nhost = "localhost"\nport = 8080\n';
       final doc = _tomlDoc(input);
       final serialized = serializeToml(doc);
@@ -181,9 +181,9 @@ void main() {
 
     test('attributes', () {
       final xml = serializeXml(
-        XmlElement(const QName('div'), [
-          (name: const QName('class'), value: 'main'),
-        ], const []),
+        const XmlElement(QName('div'), [
+          (name: QName('class'), value: 'main'),
+        ], []),
       );
       expect(xml, '<div class="main"/>');
     });
@@ -213,9 +213,9 @@ void main() {
 
     test('attribute escaping', () {
       final xml = serializeXml(
-        XmlElement(const QName('a'), [
-          (name: const QName('href'), value: 'x"y'),
-        ], const []),
+        const XmlElement(QName('a'), [
+          (name: QName('href'), value: 'x"y'),
+        ], []),
       );
       expect(xml, contains('&quot;'));
     });
@@ -288,7 +288,7 @@ void main() {
 
   group('Proto round-trip', () {
     test('message with fields', () {
-      final input = '''
+      const input = '''
 syntax = "proto3";
 
 message Person {
@@ -303,11 +303,11 @@ message Person {
     });
 
     test('optional field', () {
-      final file = ProtoFile('proto3', [
+      const file = ProtoFile('proto3', [
         ProtoMessageDef('Msg', [
           ProtoField(
             FieldRule.optional,
-            const ScalarType(ProtoScalar.string_),
+            ScalarType(ProtoScalar.string_),
             'label',
             1,
           ),
@@ -318,7 +318,7 @@ message Person {
     });
 
     test('service with streaming', () {
-      final file = ProtoFile('proto3', [
+      const file = ProtoFile('proto3', [
         ProtoServiceDef('Svc', [
           ProtoMethod('List', 'Req', 'Resp', outputStreaming: true),
         ]),
@@ -493,17 +493,17 @@ message Person {
   // Item 5: Proto structural round-trip
   group('Proto structural round-trip', () {
     test('message', () {
-      final ast = ProtoFile('proto3', [
+      const ast = ProtoFile('proto3', [
         ProtoMessageDef('Person', [
           ProtoField(
             FieldRule.singular,
-            const ScalarType(ProtoScalar.string_),
+            ScalarType(ProtoScalar.string_),
             'name',
             1,
           ),
           ProtoField(
             FieldRule.singular,
-            const ScalarType(ProtoScalar.int32),
+            ScalarType(ProtoScalar.int32),
             'age',
             2,
           ),
@@ -515,7 +515,7 @@ message Person {
     });
 
     test('enum', () {
-      final ast = ProtoFile('proto3', [
+      const ast = ProtoFile('proto3', [
         ProtoEnumDef('Color', [
           ProtoEnumValue('RED', 0),
           ProtoEnumValue('GREEN', 1),

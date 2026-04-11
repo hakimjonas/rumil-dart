@@ -10,6 +10,7 @@ import 'package:source_gen/source_gen.dart';
 
 /// Generates `AstEncoder<T, JsonValue>` for `@AstSerializable` classes.
 class AstEncoderGenerator extends GeneratorForAnnotation<AstSerializable> {
+  /// Creates the AST encoder generator.
   const AstEncoderGenerator();
 
   @override
@@ -57,7 +58,7 @@ class AstEncoderGenerator extends GeneratorForAnnotation<AstSerializable> {
     String format,
   ) {
     final suffix = _capitalize(format);
-    final codecName = '_\$${name}${suffix}Encoder';
+    final codecName = '_\$$name${suffix}Encoder';
     final astType = _astTypeName(format);
     final fields = _instanceFields(element);
 
@@ -88,7 +89,7 @@ const ${_lowerFirst(name)}${suffix}Encoder = $codecName();
 
   String _generateSumEncoder(ClassElement element, String name, String format) {
     final suffix = _capitalize(format);
-    final codecName = '_\$${name}${suffix}Encoder';
+    final codecName = '_\$$name${suffix}Encoder';
     final astType = _astTypeName(format);
     final subtypes = _leafSubclasses(element);
 
@@ -105,7 +106,7 @@ const ${_lowerFirst(name)}${suffix}Encoder = $codecName();
 
           return '''
       case $subName():
-        b.field('type', '${subName}', ${format}StringEncoder);
+        b.field('type', '$subName', ${format}StringEncoder);
 $fieldLines''';
         })
         .join('\n');

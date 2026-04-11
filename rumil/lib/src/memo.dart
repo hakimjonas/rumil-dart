@@ -6,7 +6,11 @@ import 'result.dart';
 /// Identity-based memoization key with phantom type parameters.
 ///
 /// Each [rule] call creates a unique instance. Identity is by reference.
-extension type const MemoKey<E, A>._(Object id) {
+extension type const MemoKey<E, A>._(
+  /// The identity object used for reference-based memo table lookups.
+  Object
+  id
+) {
   /// Creates a new unique key.
   factory MemoKey() => const MemoKey._(Object());
 }

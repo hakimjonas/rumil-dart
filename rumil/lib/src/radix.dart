@@ -53,7 +53,6 @@ final class RadixNode {
       final prefixLen = prefix.length;
       if (offset + prefixLen > input.length) return validMatch;
 
-      // Check prefix match
       var matches = true;
       for (var i = 0; i < prefixLen; i++) {
         if (input.codeUnitAt(offset + i) != prefix.codeUnitAt(i)) {
@@ -92,7 +91,6 @@ final class RadixNode {
       return RadixNode._(matched, true, 0, const [], const []);
     }
 
-    // Group by first character
     final grouped = <int, List<String>>{};
     for (final s in nonEmpty) {
       final c = s.codeUnitAt(0);

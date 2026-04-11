@@ -5,6 +5,9 @@ import 'dart:typed_data';
 
 /// Builds a byte sequence by appending values sequentially.
 final class ByteWriter {
+  /// Creates an empty byte writer.
+  ByteWriter();
+
   final BytesBuilder _builder = BytesBuilder(copy: false);
 
   /// Append a single byte.

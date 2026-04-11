@@ -173,14 +173,14 @@ resource "a" "b" { x = 1 }
 resource "c" "d" { x = 2 }
 '''));
       final native = hclDocToNative(d);
-      expect(native["resource"], isA<List<Object?>>());
+      expect(native['resource'], isA<List<Object?>>());
       expect((native['resource'] as List).length, 2);
     });
   });
 
   group('HCL round-trip', () {
     test('attributes', () {
-      final input = 'name = "test"\nport = 8080\n';
+      const input = 'name = "test"\nport = 8080\n';
       final doc = doc_(parseHcl(input));
       final serialized = serializeHcl(doc);
       final reparsed = doc_(parseHcl(serialized));
@@ -188,7 +188,7 @@ resource "c" "d" { x = 2 }
     });
 
     test('block', () {
-      final input = 'resource "aws_instance" "web" {\n  ami = "abc"\n}\n';
+      const input = 'resource "aws_instance" "web" {\n  ami = "abc"\n}\n';
       final doc = doc_(parseHcl(input));
       final serialized = serializeHcl(doc);
       final reparsed = doc_(parseHcl(serialized));
@@ -209,8 +209,8 @@ resource "c" "d" { x = 2 }
 
     test('block', () {
       final doc = <(String, HclValue)>[
-        ('resource', HclBlock('resource', ['aws_instance', 'web'], {
-          'ami': const HclString('abc'),
+        ('resource', const HclBlock('resource', ['aws_instance', 'web'], {
+          'ami': HclString('abc'),
         })),
       ];
       final s = serializeHcl(doc);

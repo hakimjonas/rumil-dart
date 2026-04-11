@@ -8,7 +8,9 @@ import 'package:build/build.dart';
 import 'package:rumil_codec/rumil_codec.dart';
 import 'package:source_gen/source_gen.dart';
 
+/// Generates `BinaryCodec<T>` for `@BinarySerializable` classes.
 class CodecGenerator extends GeneratorForAnnotation<BinarySerializable> {
+  /// Creates the binary codec generator.
   const CodecGenerator();
 
   @override

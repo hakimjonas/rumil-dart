@@ -1,3 +1,7 @@
+## 0.3.0
+
+- Exported shared eval helpers: asNum, asBool, typeName, applyBinaryOp, applyUnaryOp, compareValues.
+
 ## 0.2.0
 
 - Exported shared evaluation helpers: `asNum`, `asBool`, `typeName`, `applyBinaryOp`, `applyUnaryOp`, `compareValues`.

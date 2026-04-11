@@ -359,7 +359,6 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
       case Choice<E, A>(:final alternatives):
         return _interpretChoice<E, A>(alternatives, state);
 
-      // Fast paths: fused Capture/Many/Satisfy avoids per-character dispatch
       case Capture<E, dynamic>(
         parser: Many<E, dynamic>(parser: final Satisfy s),
       ):

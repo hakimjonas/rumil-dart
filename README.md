@@ -9,7 +9,7 @@ Parser combinators for Dart 3. Typed errors, left recursion, stack-safe trampoli
 | Package             | Description                                                                                                     |
 |---------------------|-----------------------------------------------------------------------------------------------------------------|
 | `rumil`             | Core combinator framework. Sealed Parser ADT, interpreter, trampoline, memoization, Warth left recursion.       |
-| `rumil_parsers`     | Format parsers for JSON, CSV, XML, TOML, YAML, and Proto3.                                                      |
+| `rumil_parsers`     | Format parsers and serializers for JSON, CSV, XML, TOML, YAML, Proto3, and HCL.                                 |
 | `rumil_codec`       | Binary codec with ZigZag, Varint, ByteWriter/Reader, and composable `BinaryCodec` via `xmap` and `product2..6`. |
 | `rumil_expressions` | Formula evaluator with arithmetic, boolean logic, variables, and custom functions.                              |
 | `rumil_bench`       | Benchmarks against petitparser and hand-written Pratt parsers.                                                  |
@@ -56,7 +56,28 @@ parseJson('{"name": "Rumil", "version": 1}');
 parseCsv('a,b,c\n1,2,3');
 parseXml('<root><child attr="v"/></root>');
 parseToml('[server]\nhost = "localhost"\nport = 8080');
+parseYaml('name: Alice\ntags:\n  - admin\n  - user\n');
+parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n');
 ```
+
+## Serialization
+
+Every format has a serializer. Parse, transform, serialize back.
+
+```dart
+// JSON round-trip
+final ast = parseJson('{"name":"Alice"}');
+final json = serializeJson(ast, config: JsonFormatConfig.pretty);
+
+// Encode Dart types to AST
+final encoder = toJsonObject<Person>((b, p) {
+  b.field('name', p.name, jsonStringEncoder);
+  b.field('age', p.age, jsonIntEncoder);
+});
+final personJson = serializeJson(encoder.encode(person));
+```
+
+Serializers: `serializeJson`, `serializeToml`, `serializeYaml`, `serializeXml`, `serializeCsv`, `serializeProto`, `serializeHcl`.
 
 ## Expression evaluator
 

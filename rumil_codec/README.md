@@ -22,6 +22,6 @@ final listCodec = intCodec.list;          // BinaryCodec<List<int>>
 final optCodec = stringCodec.nullable;    // BinaryCodec<String?>
 ```
 
-For automatic derivation via `build_runner`, see [rumil_codec_builder](https://pub.dev/packages/rumil_codec_builder).
+For automatic derivation via `build_runner`, see [rumil_codec_builder](https://pub.dev/packages/rumil_codec_builder). Supports both `@binarySerializable` (binary wire format) and `@astSerializable` (JSON/YAML/TOML/XML AST encoders).
 
 See the [main README](https://github.com/hakimjonas/rumil-dart) for full documentation.
