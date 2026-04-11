@@ -1,3 +1,9 @@
+## 0.3.0
+
+- Doc on `MemoKey.id`.
+- `public_member_api_docs` lint enforced.
+- Version aligned with other rumil packages.
+
 ## 0.2.0
 
 - **Breaking:** `fail()` renamed to `failure()` to avoid conflict with `package:test`.
