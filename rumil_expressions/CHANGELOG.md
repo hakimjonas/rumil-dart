@@ -1,3 +1,7 @@
+## 0.3.1
+
+- Depends on rumil ^0.3.0.
+
 ## 0.3.0
 
 - Exported shared eval helpers: asNum, asBool, typeName, applyBinaryOp, applyUnaryOp, compareValues.

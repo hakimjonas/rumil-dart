@@ -16,6 +16,9 @@ extension AstEncoderOps<A, AST> on AstEncoder<A, AST> {
 
 /// Builds an AST object (JSON Object, TOML Table, etc.) from named fields.
 final class ObjectBuilder<AST> {
+  /// Creates an empty object builder.
+  ObjectBuilder();
+
   /// The accumulated (name, value) pairs.
   final List<(String, AST)> entries = [];
 

@@ -1,3 +1,8 @@
+## 0.3.1
+
+- Doc on `ObjectBuilder` constructor.
+- Depends on rumil ^0.3.0.
+
 ## 0.3.0
 
 - AST encoders + serializers for JSON, TOML, YAML, XML, CSV, Proto3, HCL.
