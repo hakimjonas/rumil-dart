@@ -213,9 +213,7 @@ void main() {
 
     test('attribute escaping', () {
       final xml = serializeXml(
-        const XmlElement(QName('a'), [
-          (name: QName('href'), value: 'x"y'),
-        ], []),
+        const XmlElement(QName('a'), [(name: QName('href'), value: 'x"y')], []),
       );
       expect(xml, contains('&quot;'));
     });
@@ -467,9 +465,7 @@ message Person {
     test('deeply nested round-trip', () {
       const ast = YamlMapping({
         'a': YamlMapping({
-          'b': YamlMapping({
-            'c': YamlString('deep'),
-          }),
+          'b': YamlMapping({'c': YamlString('deep')}),
         }),
       });
       final s = serializeYaml(ast);

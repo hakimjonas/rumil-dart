@@ -59,9 +59,9 @@ void main() {
 
   group('HCL blocks', () {
     test('simple block', () {
-      final d = doc_(parseHcl(
-        'resource "aws_instance" "web" {\n  ami = "abc"\n}\n',
-      ));
+      final d = doc_(
+        parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n'),
+      );
       final block = _get(d, 'resource') as HclBlock;
       expect(block.type, 'resource');
       expect(block.labels, ['aws_instance', 'web']);
@@ -76,9 +76,11 @@ void main() {
     });
 
     test('nested blocks', () {
-      final d = doc_(parseHcl(
-        'terraform {\n  backend "s3" {\n    bucket = "state"\n  }\n}\n',
-      ));
+      final d = doc_(
+        parseHcl(
+          'terraform {\n  backend "s3" {\n    bucket = "state"\n  }\n}\n',
+        ),
+      );
       final tf = _get(d, 'terraform') as HclBlock;
       final backend = tf.body['backend'] as HclBlock;
       expect(backend.labels, ['s3']);
@@ -86,10 +88,12 @@ void main() {
     });
 
     test('multiple blocks with same type', () {
-      final d = doc_(parseHcl('''
+      final d = doc_(
+        parseHcl('''
 resource "aws_instance" "web" { ami = "abc" }
 resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
-'''));
+'''),
+      );
       final resources = d.where((e) => e.$1 == 'resource').toList();
       expect(resources.length, 2);
       final web = resources[0].$2 as HclBlock;
@@ -118,31 +122,40 @@ resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
 
   group('HCL string interpolation', () {
     test('interpolation markers preserved as literal text', () {
-      final d = doc_(parseHcl(r'name = "hello-${var.env}"' '\n'));
+      final d = doc_(
+        parseHcl(
+          r'name = "hello-${var.env}"'
+          '\n',
+        ),
+      );
       expect((_get(d, 'name') as HclString).value, r'hello-${var.env}');
     });
   });
 
   group('HCL real-world', () {
     test('terraform variable', () {
-      final d = doc_(parseHcl('''
+      final d = doc_(
+        parseHcl('''
 variable "region" {
   type    = "string"
   default = "us-east-1"
 }
-'''));
+'''),
+      );
       final v = _get(d, 'variable') as HclBlock;
       expect(v.labels, ['region']);
       expect(v.body['default'], const HclString('us-east-1'));
     });
 
     test('terraform resource', () {
-      final d = doc_(parseHcl('''
+      final d = doc_(
+        parseHcl('''
 resource "aws_instance" "web" {
   ami           = "ami-0c55b159cbfafe1f0"
   instance_type = "t2.micro"
 }
-'''));
+'''),
+      );
       final r = _get(d, 'resource') as HclBlock;
       expect(r.labels, ['aws_instance', 'web']);
     });
@@ -157,9 +170,9 @@ resource "aws_instance" "web" {
     });
 
     test('blocks include _type and _labels', () {
-      final d = doc_(parseHcl(
-        'resource "aws_instance" "web" {\n  ami = "abc"\n}\n',
-      ));
+      final d = doc_(
+        parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n'),
+      );
       final native = hclDocToNative(d);
       final res = native['resource'] as Map;
       expect(res['_type'], 'resource');
@@ -168,10 +181,12 @@ resource "aws_instance" "web" {
     });
 
     test('multiple blocks grouped into list', () {
-      final d = doc_(parseHcl('''
+      final d = doc_(
+        parseHcl('''
 resource "a" "b" { x = 1 }
 resource "c" "d" { x = 2 }
-'''));
+'''),
+      );
       final native = hclDocToNative(d);
       expect(native['resource'], isA<List<Object?>>());
       expect((native['resource'] as List).length, 2);
@@ -209,9 +224,14 @@ resource "c" "d" { x = 2 }
 
     test('block', () {
       final doc = <(String, HclValue)>[
-        ('resource', const HclBlock('resource', ['aws_instance', 'web'], {
-          'ami': HclString('abc'),
-        })),
+        (
+          'resource',
+          const HclBlock(
+            'resource',
+            ['aws_instance', 'web'],
+            {'ami': HclString('abc')},
+          ),
+        ),
       ];
       final s = serializeHcl(doc);
       expect(s, contains('resource "aws_instance" "web" {'));

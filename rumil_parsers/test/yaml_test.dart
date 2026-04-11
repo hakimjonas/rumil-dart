@@ -153,8 +153,11 @@ void main() {
     });
 
     test('sequence of mappings (compact notation)', () {
-      final v = doc_(parseYaml(
-          'users:\n  - name: Alice\n    age: 25\n  - name: Bob\n    age: 30\n'));
+      final v = doc_(
+        parseYaml(
+          'users:\n  - name: Alice\n    age: 25\n  - name: Bob\n    age: 30\n',
+        ),
+      );
       final users = (v as YamlMapping).pairs['users'] as YamlSequence;
       expect(users.elements.length, 2);
       final alice = users.elements[0] as YamlMapping;
@@ -163,8 +166,11 @@ void main() {
     });
 
     test('mixed nesting', () {
-      final v = doc_(parseYaml(
-          'database:\n  host: localhost\n  ports:\n    - 5432\n    - 5433\n'));
+      final v = doc_(
+        parseYaml(
+          'database:\n  host: localhost\n  ports:\n    - 5432\n    - 5433\n',
+        ),
+      );
       final db = (v as YamlMapping).pairs['database'] as YamlMapping;
       expect((db.pairs['host'] as YamlString).value, 'localhost');
       final ports = db.pairs['ports'] as YamlSequence;
@@ -172,7 +178,8 @@ void main() {
     });
 
     test('real-world: k8s-like config', () {
-      final v = doc_(parseYaml('''
+      final v = doc_(
+        parseYaml('''
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -181,14 +188,17 @@ metadata:
     app: my-app
 spec:
   replicas: 3
-'''));
+'''),
+      );
       final root = v as YamlMapping;
       expect((root.pairs['apiVersion'] as YamlString).value, 'apps/v1');
       final metadata = root.pairs['metadata'] as YamlMapping;
       final labels = metadata.pairs['labels'] as YamlMapping;
       expect((labels.pairs['app'] as YamlString).value, 'my-app');
-      expect((root.pairs['spec'] as YamlMapping).pairs['replicas'],
-          const YamlInteger(3));
+      expect(
+        (root.pairs['spec'] as YamlMapping).pairs['replicas'],
+        const YamlInteger(3),
+      );
     });
   });
 }

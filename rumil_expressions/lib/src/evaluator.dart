@@ -12,13 +12,14 @@ Object eval(Expr expr, Environment env) => switch (expr) {
   BoolLit(:final value) => value,
   Variable(:final name) => _lookupVar(name, env),
   UnaryOp(:final op, :final operand) => applyUnaryOp(op, eval(operand, env)),
-  BinaryOp(:final op, :final left, :final right) =>
-    applyBinaryOp(op, eval(left, env), eval(right, env)),
+  BinaryOp(:final op, :final left, :final right) => applyBinaryOp(
+    op,
+    eval(left, env),
+    eval(right, env),
+  ),
   FunctionCall(:final name, :final args) => _evalCall(name, args, env),
   Conditional(:final condition, :final then_, :final else_) =>
-    asBool(eval(condition, env), '?:')
-        ? eval(then_, env)
-        : eval(else_, env),
+    asBool(eval(condition, env), '?:') ? eval(then_, env) : eval(else_, env),
 };
 
 Object _lookupVar(String name, Environment env) {

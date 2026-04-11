@@ -155,10 +155,4 @@ final Parser<ParseError, (String, HclValue)> _hclBodyEntry =
 
 final Parser<ParseError, HclDocument> _hclDocument = _skip
     .skipThen(_hclBodyEntry.many)
-    .flatMap(
-      (entries) => _skip
-          .skipThen(eof())
-          .map(
-            (_) => entries,
-          ),
-    );
+    .flatMap((entries) => _skip.skipThen(eof()).map((_) => entries));
