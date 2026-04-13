@@ -60,7 +60,7 @@ parseYaml('name: Alice\ntags:\n  - admin\n  - user\n');
 parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n');
 ```
 
-JSON, TOML, and YAML are tested at 100% against their official spec test suites. See [rumil_parsers/CONFORMANCE.md](rumil_parsers/CONFORMANCE.md).
+All formats tested at 100% against their official spec test suites (6724 tests). See [rumil_parsers/CONFORMANCE.md](rumil_parsers/CONFORMANCE.md).
 
 ## Serialization
 
@@ -153,14 +153,14 @@ Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Both pa
 
 | Benchmark              | Rumil  | petitparser | Ratio |
 |------------------------|--------|-------------|-------|
-| JSON small (39B)       | 25 μs  | 2.0 μs      | 13x   |
-| JSON large (803KB)     | 452 ms | 44 ms       | 10x   |
-| Expression (simple)    | 10 μs  | 0.7 μs      | 13x   |
-| Expression (100 terms) | 300 μs | 27 μs       | 11x   |
+| JSON small (39B)       | 26 μs  | 2.1 μs      | 12x   |
+| JSON large (803KB)     | 478 ms | 50 ms       | 10x   |
+| Expression (simple)    | 11 μs  | 1.0 μs      | 11x   |
+| Expression (100 terms) | 320 μs | 28 μs       | 11x   |
 
-Rumil is 10-13x slower than petitparser on native AOT. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows to 4-5x because sealed class dispatch compiles efficiently to WasmGC `br_on_cast`.
+Rumil is 10-12x slower than petitparser on native AOT. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows to 3-4x because sealed class dispatch compiles efficiently to WasmGC `br_on_cast` while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls.
 
-See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair comparison breakdown, dart2wasm numbers, and the optimization trajectory from 42x to 10x.
+See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair comparison breakdown, dart2wasm numbers, and format parser throughput.
 
 **Different tradeoffs from petitparser:**
 
