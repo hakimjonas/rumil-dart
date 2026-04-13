@@ -4,6 +4,8 @@
 
 Parser combinators for Dart 3. Typed errors, left recursion, stack-safe trampolining.
 
+*Rumil invented the first writing system (the Sarati) in Tolkien's legendarium. This library parses text into structure.*
+
 ## Packages
 
 | Package             | Description                                                                                                     |
