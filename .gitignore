@@ -2,6 +2,7 @@
 .dart_tool/
 .packages
 pubspec.lock
+pubspec_overrides.yaml
 build/
 # *.g.dart excluded from global gitignore; rumil_codec_builder needs generated files committed
 

@@ -1,7 +1,7 @@
-/// CSV serializer.
+/// Delimited format serializer (CSV/TSV/DSV).
 library;
 
-import '../csv.dart';
+import '../delimited.dart';
 
 /// Serialize a [CsvDocument] to a CSV string.
 String serializeCsv(

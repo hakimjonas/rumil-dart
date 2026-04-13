@@ -14,21 +14,32 @@ export 'src/common.dart';
 export 'src/encode/escape.dart';
 
 // Parsers
-export 'src/csv.dart'
+export 'src/delimited.dart'
     show
+        // Primary API
+        parseDelimited,
+        parseDelimitedWithHeaders,
+        parseDelimitedRobust,
+        detectDialect,
+        DelimitedConfig,
+        DelimitedDocument,
+        RaggedRowPolicy,
+        defaultDelimitedConfig,
+        defaultTsvConfig,
+        // Backward compatibility
         parseCsv,
         parseTsv,
         parseCsvWithHeaders,
         CsvConfig,
         CsvDocument,
-        defaultCsvConfig,
-        defaultTsvConfig;
+        defaultCsvConfig;
 export 'src/hcl.dart' show parseHcl;
 export 'src/json.dart' show parseJson;
 export 'src/proto.dart' show parseProto;
 export 'src/toml.dart' show parseToml;
 export 'src/xml.dart' show parseXml, parseXmlFragment;
-export 'src/yaml.dart' show parseYaml;
+export 'src/yaml.dart' show parseYaml, parseYamlMulti, YamlParseConfig;
+export 'src/yaml_resolve.dart' show resolveAnchors;
 
 // Decoders (AST → typed Dart)
 export 'src/decode/decoder.dart';

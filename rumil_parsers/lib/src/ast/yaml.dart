@@ -101,8 +101,20 @@ final class YamlMapping extends YamlValue {
   /// The key-value pairs.
   final Map<String, YamlValue> pairs;
 
+  /// Anchors defined on mapping keys: anchor name → key string.
+  /// Used by [resolveAnchors] to register key anchors before resolving values.
+  final Map<String, String> keyAnchors;
+
+  /// Keys that are aliases (alias name used as key string).
+  /// Resolved to the anchor's string value during [resolveAnchors].
+  final Set<String> aliasKeys;
+
   /// Creates a mapping value.
-  const YamlMapping(this.pairs);
+  const YamlMapping(
+    this.pairs, {
+    this.keyAnchors = const {},
+    this.aliasKeys = const {},
+  });
 
   @override
   bool operator ==(Object other) =>
@@ -110,6 +122,40 @@ final class YamlMapping extends YamlValue {
       other is YamlMapping && mapEquals(pairs, other.pairs);
   @override
   int get hashCode => mapHash(pairs);
+}
+
+/// A YAML anchor: `&name value`.
+final class YamlAnchor extends YamlValue {
+  /// The anchor name.
+  final String name;
+
+  /// The anchored value.
+  final YamlValue value;
+
+  /// Creates an anchor.
+  const YamlAnchor(this.name, this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is YamlAnchor && other.name == name && other.value == value;
+  @override
+  int get hashCode => Object.hash(name, value);
+}
+
+/// A YAML alias: `*name`.
+final class YamlAlias extends YamlValue {
+  /// The alias name (references an anchor).
+  final String name;
+
+  /// Creates an alias.
+  const YamlAlias(this.name);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is YamlAlias && other.name == name;
+  @override
+  int get hashCode => name.hashCode;
 }
 
 /// A YAML document (simplified: just the root value).

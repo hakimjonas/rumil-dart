@@ -1,3 +1,7 @@
+## 0.4.0
+
+- Depends on rumil ^0.4.0. Version aligned.
+
 ## 0.3.1
 
 - Depends on rumil ^0.3.0.

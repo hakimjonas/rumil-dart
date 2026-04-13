@@ -1,3 +1,10 @@
+## 0.4.0
+
+- **Fix:** `RecoverWith` eagerly evaluates error thunks at recovery time.
+  Lazy thunks in `_satisfyMany` closed over `ParserState` and read stale
+  offsets when evaluated later, causing `RangeError` on `.errors` access.
+- `_satisfyMany` captures `state.currentChar` into a local before closures.
+
 ## 0.3.0
 
 - Doc on `MemoKey.id`.

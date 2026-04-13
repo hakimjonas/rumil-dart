@@ -30,4 +30,12 @@ final encoder = toJsonObject<Person>((b, p) {
 });
 ```
 
+## Spec Conformance
+
+JSON, TOML, YAML, and Proto3 are tested against their official specification test suites at 100% pass rate. XML and HCL conformance testing is planned.
+
+See [CONFORMANCE.md](CONFORMANCE.md) for methodology, results, and detailed status.
+
+## Documentation
+
 See the [main README](https://github.com/hakimjonas/rumil-dart) for full documentation.

@@ -1,3 +1,8 @@
+## 0.4.0
+
+- Fix: `rumil_parsers` dev dependency uses version constraint (was path).
+- Depends on `rumil_codec: ^0.4.0`. Version aligned.
+
 ## 0.3.0
 
 - AstEncoderGenerator: generates AstEncoder<T, JsonValue> for @AstSerializable classes.

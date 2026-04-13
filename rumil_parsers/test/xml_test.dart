@@ -64,7 +64,10 @@ void main() {
 
   group('XML namespaces', () {
     test('prefixed element', () {
-      final n = frag('<soap:Envelope></soap:Envelope>');
+      final n = frag(
+        '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+        '</soap:Envelope>',
+      );
       final el = n as XmlElement;
       expect(el.name.prefix, 'soap');
       expect(el.name.localName, 'Envelope');
@@ -75,6 +78,35 @@ void main() {
       final el = n as XmlElement;
       expect(el.attributes[0].name.prefix, 'xml');
       expect(el.attributes[0].name.localName, 'lang');
+    });
+
+    test('unbound prefix rejected', () {
+      final r = parseXmlFragment('<a:foo/>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+  });
+
+  group('Unicode names', () {
+    test('Latin extended', () {
+      final n = frag('<café/>');
+      expect((n as XmlElement).name.localName, 'café');
+    });
+
+    test('CJK element', () {
+      final n = frag('<日本語/>');
+      expect((n as XmlElement).name.localName, '日本語');
+    });
+
+    test('Thai element', () {
+      final n = frag('<ภาษา>text</ภาษา>');
+      final el = n as XmlElement;
+      expect(el.name.localName, 'ภาษา');
+      expect((el.children[0] as XmlText).content, 'text');
+    });
+
+    test('digit in name rejected as start', () {
+      final r = parseXmlFragment('  <1abc/>  ');
+      expect(r, isA<Failure<dynamic, dynamic>>());
     });
   });
 
@@ -126,6 +158,26 @@ void main() {
       expect(d.encoding, 'UTF-8');
     });
 
+    test('standalone yes', () {
+      final d = doc('<?xml version="1.0" standalone="yes"?><root/>');
+      expect(d.standalone, true);
+    });
+
+    test('version with trailing space rejected', () {
+      final r = parseXml('<?xml version="1.0 "?><root/>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('standalone YES (uppercase) rejected', () {
+      final r = parseXml('<?xml version="1.0" standalone="YES"?><root/>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('encoding with leading space rejected', () {
+      final r = parseXml('<?xml version="1.0" encoding=" UTF-8"?><root/>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
     test('realistic document', () {
       const input = '''<?xml version="1.0" encoding="UTF-8"?>
 <catalog>
@@ -151,6 +203,149 @@ void main() {
     test('whitespace around elements', () {
       final n = frag('  <root>  <child/>  </root>  ');
       expect(n, isA<XmlElement>());
+    });
+  });
+
+  group('Phase 1: well-formedness', () {
+    test('mismatched tags rejected', () {
+      final r = parseXml('<?xml version="1.0"?><a></b>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('duplicate attributes rejected', () {
+      final r = parseXmlFragment('<e a="1" a="2"/>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('DOCTYPE with internal subset', () {
+      final d = doc(
+        '<!DOCTYPE doc [\n'
+        '<!ELEMENT doc (#PCDATA)>\n'
+        ']>\n'
+        '<doc>hello</doc>',
+      );
+      expect((d.root as XmlElement).name.localName, 'doc');
+    });
+
+    test('DOCTYPE SYSTEM external ID', () {
+      final d = doc(
+        '<!DOCTYPE doc SYSTEM "doc.dtd">\n'
+        '<doc/>',
+      );
+      expect((d.root as XmlElement).name.localName, 'doc');
+    });
+
+    test('DOCTYPE PUBLIC external ID', () {
+      final d = doc(
+        '<!DOCTYPE doc PUBLIC "-//Test//EN" "doc.dtd">\n'
+        '<doc/>',
+      );
+      expect((d.root as XmlElement).name.localName, 'doc');
+    });
+
+    test('comment with -- rejected', () {
+      final r = parseXml(
+        '<?xml version="1.0"?><doc><!-- bad -- comment --></doc>',
+      );
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('comment ending with --- rejected', () {
+      final r = parseXml('<?xml version="1.0"?><doc><!-- bad ---></doc>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test(']]> in text content rejected', () {
+      final r = parseXml('<?xml version="1.0"?><doc>]]></doc>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('illegal XML char in content rejected', () {
+      final r = parseXml('<?xml version="1.0"?><doc>\x01</doc>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('invalid char reference rejected', () {
+      final r = parseXml('<?xml version="1.0"?><doc>&#0;</doc>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('valid char reference accepted', () {
+      final n = frag('<doc>&#65;</doc>');
+      final el = n as XmlElement;
+      expect((el.children[0] as XmlText).content, 'A');
+    });
+
+    test('PI target xml rejected', () {
+      final r = parseXmlFragment('<?XML version="1.0"?><doc/>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('ENTITY syntax in DOCTYPE validated', () {
+      // PUBLIC needs two quoted strings
+      final r = parseXml(
+        '<!DOCTYPE doc [\n'
+        '<!ENTITY foo PUBLIC "some public id">\n'
+        ']>\n'
+        '<doc/>',
+      );
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('undeclared entity rejected (no DTD)', () {
+      final r = parseXml('<?xml version="1.0"?><doc>&foo;</doc>');
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('undeclared entity rejected (internal DTD only)', () {
+      final r = parseXml(
+        '<!DOCTYPE doc [\n'
+        '<!ENTITY e "value">\n'
+        ']>\n'
+        '<doc>&f;</doc>',
+      );
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('declared entity accepted', () {
+      final d = doc(
+        '<!DOCTYPE doc [\n'
+        '<!ENTITY e "value">\n'
+        '<!ELEMENT doc (#PCDATA)>\n'
+        ']>\n'
+        '<doc>&e;</doc>',
+      );
+      expect(d.root, isA<XmlElement>());
+    });
+
+    test('undeclared entity OK with external subset', () {
+      // External subset may declare entities we don't see.
+      final d = doc(
+        '<!DOCTYPE doc SYSTEM "doc.dtd">\n'
+        '<doc>&maybe;</doc>',
+      );
+      expect(d.root, isA<XmlElement>());
+    });
+
+    test('unparsed entity reference rejected', () {
+      final r = parseXml(
+        '<!DOCTYPE doc [\n'
+        '<!NOTATION n SYSTEM "n">\n'
+        '<!ENTITY e SYSTEM "e" NDATA n>\n'
+        ']>\n'
+        '<doc>&e;</doc>',
+      );
+      expect(r, isA<Failure<dynamic, dynamic>>());
+    });
+
+    test('external entity in attribute rejected', () {
+      final r = parseXml(
+        '<!DOCTYPE doc [\n'
+        '<!ENTITY e SYSTEM "e.xml">\n'
+        ']>\n'
+        '<doc a="&e;"/>',
+      );
+      expect(r, isA<Failure<dynamic, dynamic>>());
     });
   });
 }

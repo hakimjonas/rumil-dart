@@ -484,6 +484,45 @@ message Person {
       final reparsed = _yamlDoc('$s\n');
       expect(reparsed, ast);
     });
+
+    test('URL with colon round-trip', () {
+      const ast = YamlMapping({
+        'url': YamlString('http://example.com'),
+        'proxy': YamlString('http://host:8080/path'),
+      });
+      final s = serializeYaml(ast);
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
+
+    test('block scalar round-trip', () {
+      const ast = YamlMapping({
+        'script': YamlString('echo hello\necho world\n'),
+      });
+      final s = serializeYaml(ast);
+      expect(s, contains('|'));
+      expect(s, isNot(contains(r'\n')));
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
+
+    test('block scalar strip round-trip', () {
+      const ast = YamlMapping({'text': YamlString('line 1\nline 2')});
+      final s = serializeYaml(ast);
+      expect(s, contains('|-'));
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
+
+    test('special float round-trip (.inf)', () {
+      const ast = YamlMapping({
+        'pos': YamlFloat(double.infinity),
+        'neg': YamlFloat(double.negativeInfinity),
+      });
+      final s = serializeYaml(ast);
+      final reparsed = _yamlDoc('$s\n');
+      expect(reparsed, ast);
+    });
   });
 
   // Item 5: Proto structural round-trip

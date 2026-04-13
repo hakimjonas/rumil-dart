@@ -17,6 +17,15 @@ String escapeToml(String s) => _escapeQuoted(s, escapeSlash: false);
 /// Same control character handling as JSON.
 String escapeYaml(String s) => _escapeQuoted(s, escapeSlash: false);
 
+/// Escape a string for HCL double-quoted strings.
+///
+/// Same control character handling as JSON, plus `${` → `$${` and `%{` → `%%{`
+/// to prevent template interpolation.
+String escapeHcl(String s) => _escapeQuoted(
+  s,
+  escapeSlash: false,
+).replaceAll(r'${', r'$${').replaceAll('%{', '%%{');
+
 /// Escape text content for XML.
 String escapeXmlText(String s) =>
     s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');

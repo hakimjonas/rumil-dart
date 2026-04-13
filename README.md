@@ -60,6 +60,8 @@ parseYaml('name: Alice\ntags:\n  - admin\n  - user\n');
 parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n');
 ```
 
+JSON, TOML, and YAML are tested at 100% against their official spec test suites. See [rumil_parsers/CONFORMANCE.md](rumil_parsers/CONFORMANCE.md).
+
 ## Serialization
 
 Every format has a serializer. Parse, transform, serialize back.

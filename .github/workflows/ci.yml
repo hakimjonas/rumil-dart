@@ -16,6 +16,25 @@ jobs:
         with:
           sdk: stable
 
+      - name: Set up monorepo overrides
+        run: |
+          for pkg in rumil_parsers rumil_expressions; do
+          cat > $pkg/pubspec_overrides.yaml <<'EOF'
+          dependency_overrides:
+            rumil:
+              path: ../rumil
+          EOF
+          done
+          cat > rumil_codec_builder/pubspec_overrides.yaml <<'EOF'
+          dependency_overrides:
+            rumil:
+              path: ../rumil
+            rumil_codec:
+              path: ../rumil_codec
+            rumil_parsers:
+              path: ../rumil_parsers
+          EOF
+
       - name: Install dependencies
         run: |
           for pkg in rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder; do
@@ -26,18 +45,11 @@ jobs:
         working-directory: rumil_codec_builder
         run: dart run build_runner build --delete-conflicting-outputs
 
-      - name: Analyze standalone packages
+      - name: Analyze
         run: |
-          for pkg in rumil rumil_codec; do
+          for pkg in rumil rumil_codec rumil_parsers rumil_expressions rumil_codec_builder; do
             echo "=== $pkg ==="
             (cd $pkg && dart analyze --fatal-infos)
-          done
-
-      - name: Analyze packages with path deps (warning expected)
-        run: |
-          for pkg in rumil_parsers rumil_expressions rumil_codec_builder; do
-            echo "=== $pkg ==="
-            (cd $pkg && dart analyze --no-fatal-warnings)
           done
 
   format:
@@ -48,6 +60,25 @@ jobs:
       - uses: dart-lang/setup-dart@v1.7.2
         with:
           sdk: stable
+
+      - name: Set up monorepo overrides
+        run: |
+          for pkg in rumil_parsers rumil_expressions; do
+          cat > $pkg/pubspec_overrides.yaml <<'EOF'
+          dependency_overrides:
+            rumil:
+              path: ../rumil
+          EOF
+          done
+          cat > rumil_codec_builder/pubspec_overrides.yaml <<'EOF'
+          dependency_overrides:
+            rumil:
+              path: ../rumil
+            rumil_codec:
+              path: ../rumil_codec
+            rumil_parsers:
+              path: ../rumil_parsers
+          EOF
 
       - name: Install dependencies
         run: |
@@ -66,6 +97,16 @@ jobs:
       - uses: dart-lang/setup-dart@v1.7.2
         with:
           sdk: stable
+
+      - name: Set up monorepo overrides
+        run: |
+          for pkg in rumil_parsers rumil_expressions; do
+          cat > $pkg/pubspec_overrides.yaml <<'EOF'
+          dependency_overrides:
+            rumil:
+              path: ../rumil
+          EOF
+          done
 
       - name: Install dependencies
         run: |
@@ -97,6 +138,16 @@ jobs:
       - uses: dart-lang/setup-dart@v1.7.2
         with:
           sdk: stable
+
+      - name: Set up monorepo overrides
+        run: |
+          for pkg in rumil_parsers rumil_expressions; do
+          cat > $pkg/pubspec_overrides.yaml <<'EOF'
+          dependency_overrides:
+            rumil:
+              path: ../rumil
+          EOF
+          done
 
       - name: Install dependencies
         run: |

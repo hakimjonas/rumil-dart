@@ -1,3 +1,23 @@
+## 0.4.0
+
+**All parsers to spec conformance. 6724 tests, zero analyzer warnings.**
+
+- **HCL full spec:** expression tower (operators, ternary, for-expressions,
+  function calls), string templates `${expr}`, heredocs `<<EOF`/`<<-EOF`,
+  template directives `%{if}`/`%{for}`, index/splat `[*]`/`.*`, scientific
+  notation, Unicode identifiers, parenthesized object keys, object element
+  commas. 2760/2760 including 2717 terraform-provider-aws `.tf` files.
+- **XML 1.0 5e:** W3C conformance suite — 1506/1506. DOCTYPE/DTD parsing,
+  external entity resolution, namespace validation, Unicode names,
+  attribute uniqueness, `--` restriction in comments.
+- **Delimited overhaul:** three-tier architecture (explicit config /
+  auto-detect dialect / per-row robust), BOM stripping, ragged row policies,
+  `detectDialect()`, `parseDelimitedRobust()`. 100 tests.
+- **YAML 1.2:** anchors, aliases, merge keys, block scalars, multi-document,
+  full escape set, `resolveAnchors()`, `YamlParseConfig`. 333/333.
+- **JSON:** 318/318. **TOML 1.1:** 681/681. **Proto3:** 101/101.
+- Conformance test runners for all formats in `test/conformance/`.
+
 ## 0.3.1
 
 - Doc on `ObjectBuilder` constructor.

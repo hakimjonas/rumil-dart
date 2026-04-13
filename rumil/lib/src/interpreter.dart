@@ -491,21 +491,25 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         final r = interpretI<E, A>(parser, state);
         if (r is! Failure<E, A>) return r;
         state.restore(snapshot);
+        // Eagerly evaluate the original failure's errors now, before further
+        // parsing mutates state. Lazy thunks may close over ParserState and
+        // read stale offsets if evaluated later (see _satisfyMany).
+        final originalErrors = r.errorThunk();
         final r2 = interpretI<E, A>(recovery, state);
         return switch (r2) {
-          Success<E, A>(:final value, :final consumed) => Partial<E, A>(
+          Success<E, A>(:final value, :final consumed) => Partial<E, A>.eager(
             value,
-            r.errorThunk,
+            originalErrors,
             consumed,
           ),
           Partial<E, A>(:final value, :final errorThunk, :final consumed) =>
             Partial<E, A>(
               value,
-              () => [...r.errorThunk(), ...errorThunk()],
+              () => [...originalErrors, ...errorThunk()],
               consumed,
             ),
           Failure<E, A>(:final errorThunk, :final furthest) => Failure<E, A>(
-            () => [...r.errorThunk(), ...errorThunk()],
+            () => [...originalErrors, ...errorThunk()],
             r.furthest.offset > furthest.offset ? r.furthest : furthest,
           ),
         };
@@ -929,9 +933,10 @@ Result<E, A> _scanMany<E, A>(
   if (required && consumed == 0) {
     final loc = state.location;
     if (state.hasChar) {
+      final actual = state.currentChar;
       return Failure<E, A>(
         () => [
-          Unexpected(state.currentChar, {expected}, loc) as E,
+          Unexpected(actual, {expected}, loc) as E,
         ],
         loc,
       );
@@ -962,9 +967,10 @@ Result<E, A> _collectMany1<E, A>(
   if (!state.hasChar || !pred(state.currentChar)) {
     final loc = state.location;
     if (state.hasChar) {
+      final actual = state.currentChar;
       return Failure<E, A>(
         () => [
-          Unexpected(state.currentChar, {expected}, loc) as E,
+          Unexpected(actual, {expected}, loc) as E,
         ],
         loc,
       );

@@ -1,3 +1,7 @@
+## 0.4.0
+
+- Version aligned with rumil_parsers 0.4.0.
+
 ## 0.3.0
 
 - Added @AstSerializable annotation and AstFormat enum.

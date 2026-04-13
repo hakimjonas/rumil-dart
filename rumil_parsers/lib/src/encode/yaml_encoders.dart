@@ -122,7 +122,10 @@ String serializeYaml(YamlValue value, {int indent = 2, int depth = 0}) {
       _ when value == double.negativeInfinity => '$pad-.inf',
       _ => '$pad$value',
     },
-    YamlString(:final value) => '$pad${_quoteYamlString(value)}',
+    YamlString(:final value) =>
+      value.contains('\n')
+          ? '$pad${_blockScalarString(value, indent, depth + 1)}'
+          : '$pad${_quoteYamlString(value)}',
     YamlSequence(:final elements) =>
       elements.isEmpty
           ? '$pad[]'
@@ -141,16 +144,33 @@ String serializeYaml(YamlValue value, {int indent = 2, int depth = 0}) {
                 return switch (e.value) {
                   YamlMapping() || YamlSequence() =>
                     '$key:\n${serializeYaml(e.value, indent: indent, depth: depth + 1)}',
+                  YamlString(:final value) when value.contains('\n') =>
+                    '$key: ${_blockScalarString(value, indent, depth + 1)}',
                   _ =>
                     '$key: ${serializeYaml(e.value, indent: indent, depth: 0).trimLeft()}',
                 };
               })
               .join('\n'),
+    YamlAnchor(:final name, :final value) =>
+      '$pad&$name ${serializeYaml(value, indent: indent, depth: depth).trimLeft()}',
+    YamlAlias(:final name) => '$pad*$name',
   };
 }
 
 /// Serialize a YAML document with `---` marker.
 String serializeYamlDocument(YamlValue root) => '---\n${serializeYaml(root)}';
+
+/// Emit a multi-line string as a literal block scalar (`|`).
+///
+/// [contentDepth] is the depth at which content lines are indented.
+String _blockScalarString(String s, int indent, int contentDepth) {
+  final contentPad = ' ' * (indent * contentDepth);
+  // Determine chomping: strip if no trailing newline, clip if one, keep if multiple.
+  final chomp = s.endsWith('\n') ? (s.endsWith('\n\n') ? '+' : '') : '-';
+  final lines = s.endsWith('\n') ? s.substring(0, s.length - 1) : s;
+  final indented = lines.split('\n').map((l) => '$contentPad$l').join('\n');
+  return '|$chomp\n$indented';
+}
 
 String _quoteYamlString(String s) {
   if (s == 'true' || s == 'false' || s == 'null' || s == '~' || s.isEmpty) {

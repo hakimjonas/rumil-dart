@@ -167,6 +167,10 @@ class XmlDocument {
   });
 }
 
+/// Resolves external entity content by system/public ID.
+/// Returns the entity content as a string, or null if not resolvable.
+typedef EntityResolver = String? Function(String systemId, String? publicId);
+
 /// XML parsing configuration.
 class XmlConfig {
   /// Whether to preserve whitespace-only text nodes.
@@ -181,12 +185,17 @@ class XmlConfig {
   /// Whether to expand entity references (e.g. `&amp;` to `&`).
   final bool expandEntities;
 
+  /// Optional resolver for external entity content.
+  /// Called when an external parsed entity is referenced in content.
+  final EntityResolver? resolveEntity;
+
   /// Creates a parse configuration.
   const XmlConfig({
     this.preserveWhitespace = false,
     this.parseComments = true,
     this.parseProcessingInstructions = true,
     this.expandEntities = true,
+    this.resolveEntity,
   });
 }
 

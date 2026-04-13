@@ -6,6 +6,8 @@ import '../ast/json.dart';
 import '../ast/toml.dart';
 import '../ast/xml.dart';
 import '../ast/yaml.dart';
+import '../encode/hcl_encoders.dart' show serializeHclValue;
+import '../yaml_resolve.dart';
 
 /// Convert a [JsonValue] to native Dart types.
 ///
@@ -24,17 +26,29 @@ Object? jsonToNative(JsonValue v) => switch (v) {
 };
 
 /// Convert a [YamlValue] to native Dart types.
-Object? yamlToNative(YamlValue v) => switch (v) {
+///
+/// Resolves anchors and aliases internally before conversion.
+/// Downstream consumers never see unresolved [YamlAnchor] or [YamlAlias].
+Object? yamlToNative(YamlValue v) {
+  final resolved = resolveAnchors(v);
+  return _yamlToNativeResolved(resolved);
+}
+
+Object? _yamlToNativeResolved(YamlValue v) => switch (v) {
   YamlNull() => null,
   YamlBool(:final value) => value,
   YamlInteger(:final value) => value,
   YamlFloat(:final value) => value,
   YamlString(:final value) => value,
-  YamlSequence(:final elements) => [for (final e in elements) yamlToNative(e)],
+  YamlSequence(:final elements) => [
+    for (final e in elements) _yamlToNativeResolved(e),
+  ],
   YamlMapping(:final pairs) => {
     for (final MapEntry(:key, :value) in pairs.entries)
-      key: yamlToNative(value),
+      key: _yamlToNativeResolved(value),
   },
+  YamlAnchor() ||
+  YamlAlias() => throw StateError('Unresolved anchor/alias in YAML'),
 };
 
 /// Convert a [TomlDocument] to native Dart types.
@@ -108,6 +122,8 @@ Map<String, Object?> hclDocToNative(HclDocument doc) {
 /// Convert an [HclValue] to native Dart types.
 ///
 /// Blocks include `_type` and `_labels` metadata fields.
+/// Expression nodes are serialized back to their HCL string form since
+/// this is a non-evaluating parser.
 Object? hclToNative(HclValue v) => switch (v) {
   HclString(:final value) => value,
   HclNumber(:final value) => value,
@@ -124,6 +140,19 @@ Object? hclToNative(HclValue v) => switch (v) {
     for (final MapEntry(:key, :value) in body.entries) key: hclToNative(value),
   },
   HclReference(:final path) => path,
+  HclUnaryOp() ||
+  HclBinaryOp() ||
+  HclConditional() ||
+  HclFunctionCall() ||
+  HclIndex() ||
+  HclGetAttr() ||
+  HclAttrSplat() ||
+  HclFullSplat() ||
+  HclForTuple() ||
+  HclForObject() ||
+  HclParenExpr() ||
+  HclTemplate() ||
+  HclHeredoc() => serializeHclValue(v),
 };
 
 String _pad(int n) => n.toString().padLeft(2, '0');
