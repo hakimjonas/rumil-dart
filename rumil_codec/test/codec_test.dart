@@ -110,6 +110,94 @@ void main() {
     });
   });
 
+  group('dateTimeCodec', () {
+    test('round-trips UTC', () {
+      _roundTrip(dateTimeCodec, DateTime.utc(2026, 4, 16, 12, 30));
+    });
+
+    test('round-trips local', () {
+      final local = DateTime(2026, 4, 16, 12, 30);
+      final bytes = dateTimeCodec.encode(local);
+      final decoded = dateTimeCodec.decode(bytes);
+      expect(decoded, local);
+      expect(decoded.isUtc, false);
+    });
+
+    test('preserves UTC flag', () {
+      final utc = DateTime.utc(2024, 1, 1);
+      final local = DateTime(2024, 1, 1);
+      expect(dateTimeCodec.decode(dateTimeCodec.encode(utc)).isUtc, true);
+      expect(dateTimeCodec.decode(dateTimeCodec.encode(local)).isUtc, false);
+    });
+
+    test('round-trips epoch zero', () {
+      _roundTrip(
+        dateTimeCodec,
+        DateTime.fromMicrosecondsSinceEpoch(0, isUtc: true),
+      );
+    });
+
+    test('round-trips negative epoch', () {
+      _roundTrip(dateTimeCodec, DateTime.utc(1969, 7, 20, 20, 17));
+    });
+
+    test('microsecond precision', () {
+      final dt = DateTime.utc(2026, 4, 16, 12, 30, 45, 123, 456);
+      _roundTrip(dateTimeCodec, dt);
+    });
+  });
+
+  group('bigIntCodec', () {
+    test('round-trips zero', () {
+      _roundTrip(bigIntCodec, BigInt.zero);
+    });
+
+    test('round-trips small positive', () {
+      _roundTrip(bigIntCodec, BigInt.from(42));
+    });
+
+    test('round-trips small negative', () {
+      _roundTrip(bigIntCodec, BigInt.from(-42));
+    });
+
+    test('round-trips large values', () {
+      _roundTrip(bigIntCodec, BigInt.parse('999999999999999999999999999999'));
+      _roundTrip(bigIntCodec, BigInt.parse('-999999999999999999999999999999'));
+    });
+
+    test('round-trips powers of two', () {
+      _roundTrip(bigIntCodec, BigInt.two.pow(128));
+      _roundTrip(bigIntCodec, BigInt.two.pow(256));
+    });
+
+    test('round-trips one', () {
+      _roundTrip(bigIntCodec, BigInt.one);
+      _roundTrip(bigIntCodec, -BigInt.one);
+    });
+  });
+
+  group('enumCodec', () {
+    test('round-trips values', () {
+      final codec = enumCodec(_TestColor.values);
+      _roundTrip(codec, _TestColor.red);
+      _roundTrip(codec, _TestColor.green);
+      _roundTrip(codec, _TestColor.blue);
+    });
+
+    test('ordinals match index', () {
+      final codec = enumCodec(_TestColor.values);
+      expect(codec.encode(_TestColor.red), intCodec.encode(0));
+      expect(codec.encode(_TestColor.green), intCodec.encode(1));
+      expect(codec.encode(_TestColor.blue), intCodec.encode(2));
+    });
+
+    test('invalid ordinal throws', () {
+      final codec = enumCodec(_TestColor.values);
+      final bytes = intCodec.encode(99);
+      expect(() => codec.decode(bytes), throwsA(isA<InvalidOrdinal>()));
+    });
+  });
+
   group('error handling', () {
     test('truncated int throws UnexpectedEof', () {
       expect(
@@ -130,3 +218,5 @@ void main() {
     });
   });
 }
+
+enum _TestColor { red, green, blue }

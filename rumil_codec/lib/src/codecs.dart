@@ -43,6 +43,24 @@ const BinaryCodec<String> stringCodec = _StringCodec();
 /// Raw byte array codec (Varint length prefix + bytes).
 const BinaryCodec<Uint8List> bytesCodec = _BytesCodec();
 
+/// DateTime codec (microseconds since Unix epoch as ZigZag + Varint).
+///
+/// Preserves UTC/local distinction. Microsecond precision.
+const BinaryCodec<DateTime> dateTimeCodec = _DateTimeCodec();
+
+/// BigInt codec (sign byte + Varint length + big-endian magnitude bytes).
+const BinaryCodec<BigInt> bigIntCodec = _BigIntCodec();
+
+/// Codec for enum types. Maps each variant to a Varint ordinal.
+///
+/// ```dart
+/// final colorCodec = enumCodec(Color.values);
+/// colorCodec.encode(Color.red);   // [0x00]
+/// colorCodec.encode(Color.green); // [0x02] (ZigZag-encoded 1)
+/// ```
+BinaryCodec<E> enumCodec<E extends Enum>(List<E> values) =>
+    _EnumCodec<E>(values);
+
 // ---- Composite constructors ----
 
 /// Codec for `List<A>` (Varint count + elements).
@@ -168,6 +186,84 @@ final class _BytesCodec implements BinaryCodec<Uint8List> {
   Uint8List read(ByteReader reader) {
     final length = Varint.read(reader);
     return reader.readBytes(length);
+  }
+}
+
+final class _DateTimeCodec implements BinaryCodec<DateTime> {
+  const _DateTimeCodec();
+
+  @override
+  void write(ByteWriter writer, DateTime value) {
+    writer.writeByte(value.isUtc ? 1 : 0);
+    Varint.write(writer, ZigZag.encode(value.microsecondsSinceEpoch));
+  }
+
+  @override
+  DateTime read(ByteReader reader) {
+    final offset = reader.offset;
+    final utcFlag = reader.readByte();
+    if (utcFlag != 0 && utcFlag != 1) throw InvalidTag(utcFlag, offset);
+    final us = ZigZag.decode(Varint.read(reader));
+    return utcFlag == 1
+        ? DateTime.fromMicrosecondsSinceEpoch(us, isUtc: true)
+        : DateTime.fromMicrosecondsSinceEpoch(us);
+  }
+}
+
+final class _BigIntCodec implements BinaryCodec<BigInt> {
+  const _BigIntCodec();
+
+  @override
+  void write(ByteWriter writer, BigInt value) {
+    if (value == BigInt.zero) {
+      writer.writeByte(0);
+      Varint.write(writer, 0);
+      return;
+    }
+    writer.writeByte(value.isNegative ? 1 : 0);
+    final mag = value.isNegative ? -value : value;
+    final hex = mag.toRadixString(16);
+    final padded = hex.length.isOdd ? '0$hex' : hex;
+    final bytes = Uint8List(padded.length ~/ 2);
+    for (var i = 0; i < bytes.length; i++) {
+      bytes[i] = int.parse(padded.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    Varint.write(writer, bytes.length);
+    writer.writeBytes(bytes);
+  }
+
+  @override
+  BigInt read(ByteReader reader) {
+    final offset = reader.offset;
+    final sign = reader.readByte();
+    if (sign != 0 && sign != 1) throw InvalidTag(sign, offset);
+    final length = Varint.read(reader);
+    if (length == 0) return BigInt.zero;
+    final bytes = reader.readBytes(length);
+    var result = BigInt.zero;
+    for (final b in bytes) {
+      result = (result << 8) | BigInt.from(b);
+    }
+    return sign == 1 ? -result : result;
+  }
+}
+
+final class _EnumCodec<E extends Enum> implements BinaryCodec<E> {
+  final List<E> _values;
+  const _EnumCodec(this._values);
+
+  @override
+  void write(ByteWriter writer, E value) =>
+      Varint.write(writer, ZigZag.encode(value.index));
+
+  @override
+  E read(ByteReader reader) {
+    final offset = reader.offset;
+    final index = ZigZag.decode(Varint.read(reader));
+    if (index < 0 || index >= _values.length) {
+      throw InvalidOrdinal(index, _values.length - 1, offset);
+    }
+    return _values[index];
   }
 }
 
