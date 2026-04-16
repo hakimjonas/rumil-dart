@@ -374,6 +374,16 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
             )
             as Result<E, A>;
 
+      case Capture<E, dynamic>(parser: Many<E, dynamic>(:final parser)):
+        return _interpretCaptureMany<E, dynamic>(
+          parser, state, required: false,
+        ) as Result<E, A>;
+
+      case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
+        return _interpretCaptureMany<E, dynamic>(
+          parser, state, required: true,
+        ) as Result<E, A>;
+
       case final Capture<E, dynamic> cap:
         return cap.interpretWith((inner) {
               final startOff = state.offset;
@@ -888,6 +898,47 @@ Result<E, A> _interpretStringChoice<E, A>(
   );
   final expected = targets.map((s) => '"$s"').toSet();
   return Failure<E, A>(() => [Unexpected(found, expected, loc) as E], loc);
+}
+
+// ===========================================================================
+// Fused Capture(Many) / Capture(Many1) — skip list allocation
+// ===========================================================================
+
+Result<E, String> _interpretCaptureMany<E, A>(
+  Parser<E, A> p,
+  ParserState state, {
+  required bool required,
+}) {
+  final startOff = state.offset;
+  final errThunks = <List<E> Function()>[];
+  var totalConsumed = 0;
+  final simple = p.isSimple;
+
+  while (true) {
+    final snapshot = simple ? 0 : state.save();
+    final result = interpretI<E, A>(p, state);
+    switch (result) {
+      case Success<E, A>(:final consumed):
+        totalConsumed += consumed;
+      case Partial<E, A>(:final errorThunk, :final consumed):
+        errThunks.add(errorThunk);
+        totalConsumed += consumed;
+      case Failure<E, A>():
+        if (!simple) state.restore(snapshot);
+        if (required && totalConsumed == 0) {
+          return Failure<E, String>(result.errorThunk, result.furthest);
+        }
+        final captured = state.slice(startOff, startOff + totalConsumed);
+        if (errThunks.isEmpty) {
+          return Success<E, String>(captured, totalConsumed);
+        }
+        return Partial<E, String>(
+          captured,
+          () => errThunks.expand((t) => t()).toList(),
+          totalConsumed,
+        );
+    }
+  }
 }
 
 // ===========================================================================
