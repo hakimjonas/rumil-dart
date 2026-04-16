@@ -1,3 +1,15 @@
+## 0.5.0
+
+**Interpreter optimizations and API refinements.**
+
+- **Breaking:** `Location` changed from `extension type` to `final class`. Line/column now computed lazily from offset — eliminates per-character write barriers. Constructor changed from named parameters to `Location(input, offset)`.
+- **Breaking:** `Snapshot` typedef removed. `ParserState.save()` returns `int`, `restore()` takes `int`. `ParserState.line`/`column` getters removed — use `state.location.line` instead.
+- **Perf:** Eliminate terminal re-boxing in trampoline (no intermediate Result allocation per terminal dispatch).
+- **Perf:** Replace `late final` with nullable cache (`??=`) in `Partial`/`Failure` error fields — removes hidden initialization check on WasmGC.
+- **Perf:** Add `Parser.isSimple` property for save/restore skipping in `Or`, `Optional`, `Many`, `SkipMany`.
+- **Perf:** Fuse `Capture(Many(p))` / `Capture(Many1(p))` in interpreter — skip intermediate list allocation.
+- **5-9% faster on AOT native, 30-52% faster on WasmGC** across all format parser benchmarks.
+
 ## 0.4.0
 
 - **Fix:** `RecoverWith` eagerly evaluates error thunks at recovery time.

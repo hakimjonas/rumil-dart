@@ -38,8 +38,10 @@ final class Partial<E, A> extends Result<E, A> {
   /// Lazy error thunk, evaluated on first access of [errors].
   final List<E> Function() errorThunk;
 
+  List<E>? _errors;
+
   /// Materialized errors (evaluated once from [errorThunk]).
-  late final List<E> errors = errorThunk();
+  List<E> get errors => _errors ??= errorThunk();
 
   /// Creates a partial result with lazy errors.
   Partial(this.value, this.errorThunk, this.consumed) : super._();
@@ -47,6 +49,7 @@ final class Partial<E, A> extends Result<E, A> {
   /// Creates a partial result with pre-computed errors.
   Partial.eager(this.value, List<E> errors, this.consumed)
     : errorThunk = (() => errors),
+      _errors = errors,
       super._();
 
   @override
@@ -63,8 +66,10 @@ final class Failure<E, A> extends Result<E, A> {
   /// Lazy error thunk, evaluated on first access of [errors].
   final List<E> Function() errorThunk;
 
+  List<E>? _errors;
+
   /// Materialized errors (evaluated once from [errorThunk]).
-  late final List<E> errors = errorThunk();
+  List<E> get errors => _errors ??= errorThunk();
 
   /// Creates a failure with lazy errors.
   Failure(this.errorThunk, this.furthest) : super._();
@@ -72,6 +77,7 @@ final class Failure<E, A> extends Result<E, A> {
   /// Creates a failure with pre-computed errors.
   Failure.eager(List<E> errors, this.furthest)
     : errorThunk = (() => errors),
+      _errors = errors,
       super._();
 
   @override

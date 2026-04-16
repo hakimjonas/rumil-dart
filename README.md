@@ -11,7 +11,7 @@ Parser combinators for Dart 3. Typed errors, left recursion, stack-safe trampoli
 | Package             | Description                                                                                                     |
 |---------------------|-----------------------------------------------------------------------------------------------------------------|
 | `rumil`             | Core combinator framework. Sealed Parser ADT, interpreter, trampoline, memoization, Warth left recursion.       |
-| `rumil_parsers`     | Format parsers and serializers for JSON, CSV, XML, TOML, YAML, Proto3, and HCL.                                 |
+| `rumil_parsers`     | Format parsers and serializers for JSON, CSV, XML, TOML, YAML, Proto3, HCL, and CommonMark Markdown.            |
 | `rumil_codec`       | Binary codec with ZigZag, Varint, ByteWriter/Reader, and composable `BinaryCodec` via `xmap` and `product2..6`. |
 | `rumil_expressions` | Formula evaluator with arithmetic, boolean logic, variables, and custom functions.                              |
 | `rumil_bench`       | Benchmarks against petitparser and hand-written Pratt parsers.                                                  |
@@ -62,7 +62,7 @@ parseYaml('name: Alice\ntags:\n  - admin\n  - user\n');
 parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n');
 ```
 
-All formats tested at 100% against their official spec test suites (6724 tests). See [rumil_parsers/CONFORMANCE.md](rumil_parsers/CONFORMANCE.md).
+All formats tested at 100% against their official spec test suites (7376 tests). See [rumil_parsers/CONFORMANCE.md](rumil_parsers/CONFORMANCE.md).
 
 ## Serialization
 
@@ -155,12 +155,12 @@ Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Both pa
 
 | Benchmark              | Rumil  | petitparser | Ratio |
 |------------------------|--------|-------------|-------|
-| JSON small (39B)       | 26 μs  | 2.1 μs      | 12x   |
-| JSON large (803KB)     | 478 ms | 50 ms       | 10x   |
+| JSON small (39B)       | 25 μs  | 2.0 μs      | 13x   |
+| JSON large (803KB)     | 449 ms | 45 ms       | 10x   |
 | Expression (simple)    | 11 μs  | 1.0 μs      | 11x   |
 | Expression (100 terms) | 320 μs | 28 μs       | 11x   |
 
-Rumil is 10-12x slower than petitparser on native AOT. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows to 3-4x because sealed class dispatch compiles efficiently to WasmGC `br_on_cast` while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls.
+Rumil is 10-13x slower than petitparser on native AOT. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows to 3-4x because sealed class dispatch compiles efficiently to WasmGC `br_on_cast` while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls. WasmGC is now consistently 2x faster than AOT native for Rumil parsers.
 
 See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair comparison breakdown, dart2wasm numbers, and format parser throughput.
 

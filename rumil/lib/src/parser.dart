@@ -14,6 +14,10 @@ import 'result.dart';
 sealed class Parser<E, A> {
   /// Base constructor.
   const Parser();
+
+  /// True if this parser cannot consume input on failure.
+  /// Used to skip save/restore in Many/Choice/Or loops.
+  bool get isSimple => false;
 }
 
 // ---------------------------------------------------------------------------
@@ -27,6 +31,9 @@ final class Succeed<E, A> extends Parser<E, A> {
 
   /// Creates a parser that always succeeds with [value].
   const Succeed(this.value);
+
+  @override
+  bool get isSimple => true;
 }
 
 /// Always fails with [error], consuming no input.
@@ -36,6 +43,9 @@ final class Fail<E, A> extends Parser<E, A> {
 
   /// Creates a parser that always fails with [error].
   const Fail(this.error);
+
+  @override
+  bool get isSimple => true;
 }
 
 /// Matches a single character satisfying [pred].
@@ -48,6 +58,9 @@ final class Satisfy extends Parser<ParseError, String> {
 
   /// Creates a character parser with [pred] and [expected] label.
   const Satisfy(this.pred, this.expected);
+
+  @override
+  bool get isSimple => true;
 }
 
 /// Matches the exact string [target].
@@ -57,6 +70,9 @@ final class StringMatch extends Parser<ParseError, String> {
 
   /// Creates a parser that matches [target] exactly.
   const StringMatch(this.target);
+
+  @override
+  bool get isSimple => true;
 }
 
 /// Matches one of several string alternatives via a radix tree.
@@ -69,12 +85,18 @@ final class StringChoice extends Parser<ParseError, String> {
 
   /// Creates a parser matching any of [targets] via [radix] tree.
   const StringChoice(this.radix, this.targets);
+
+  @override
+  bool get isSimple => true;
 }
 
 /// Matches end of input.
 final class Eof<E> extends Parser<E, void> {
   /// Creates an end-of-input parser.
   const Eof();
+
+  @override
+  bool get isSimple => true;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +116,9 @@ final class Mapped<E, A, B> extends Parser<E, B> {
 
   /// Apply [f] to a type-erased value (used by the trampoline).
   B applyF(Object? value) => f(value as A);
+
+  @override
+  bool get isSimple => source.isSimple;
 
   /// Dispatch to the interpreter with the inner type in scope.
   Result<E, B> interpretWith(Result<E, T> Function<T>(Parser<E, T>) interpret) {
@@ -346,6 +371,9 @@ final class LookAhead<E, A> extends Parser<E, A> {
 
   /// Creates a lookahead parser.
   const LookAhead(this.parser);
+
+  @override
+  bool get isSimple => true;
 }
 
 /// Succeeds only if [parser] would fail (negative lookahead).
@@ -355,6 +383,9 @@ final class NotFollowedBy<A> extends Parser<ParseError, void> {
 
   /// Creates a negative lookahead parser.
   const NotFollowedBy(this.parser);
+
+  @override
+  bool get isSimple => true;
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +414,9 @@ final class Expect<A> extends Parser<ParseError, A> {
 
   /// Creates an expect parser.
   const Expect(this.parser, this.message);
+
+  @override
+  bool get isSimple => parser.isSimple;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +433,9 @@ final class Named<A> extends Parser<ParseError, A> {
 
   /// Creates a named parser.
   const Named(this.parser, this.name);
+
+  @override
+  bool get isSimple => parser.isSimple;
 }
 
 /// Prints trace output on enter/exit. No effect on results.

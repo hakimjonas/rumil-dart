@@ -468,9 +468,7 @@ final Parser<ParseError, String> _syntaxStatement = _skip
     .skipThen(char('='))
     .skipThen(_skip)
     .skipThen(char('"'))
-    .skipThen(
-      satisfy((c) => c != '"', 'version char').many1.map((c) => c.join()),
-    )
+    .skipThen(satisfy((c) => c != '"', 'version char').many1.capture)
     .flatMap(
       (version) => char(
         '"',
@@ -495,9 +493,7 @@ final Parser<ParseError, ProtoDefinition> _importStatement = _skip
     .flatMap(
       (pub) => _skip
           .skipThen(char('"'))
-          .skipThen(
-            satisfy((c) => c != '"', 'path char').many.map((cs) => cs.join()),
-          )
+          .skipThen(satisfy((c) => c != '"', 'path char').many.capture)
           .flatMap(
             (path) => char('"')
                 .skipThen(_skip)

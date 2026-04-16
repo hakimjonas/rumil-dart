@@ -120,7 +120,10 @@ String _stripBom(String input) =>
 /// - Whether the first row is a header
 DelimitedConfig detectDialect(String input, {int sampleLines = 20}) {
   final clean = _stripBom(input);
-  final lines = clean.split(RegExp(r'\r\n|\r|\n'));
+  final lines = clean
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
   final sample = lines.take(sampleLines).where((l) => l.isNotEmpty).toList();
   if (sample.isEmpty) return defaultDelimitedConfig;
 
@@ -174,17 +177,20 @@ DelimitedConfig detectDialect(String input, {int sampleLines = 20}) {
 
 /// Count occurrences of [delim] outside quoted regions in [line].
 int _countDelimiters(String line, String delim) {
-  var count = 0;
-  var inQuotes = false;
-  for (var i = 0; i < line.length; i++) {
-    final c = line[i];
-    if (c == '"' || c == "'") {
-      inQuotes = !inQuotes;
-    } else if (!inQuotes && c == delim) {
-      count++;
-    }
-  }
-  return count;
+  final quoted = (char('"') | char("'")).flatMap(
+    (q) => satisfy((c) => c != q, 'quoted').many.skipThen(char(q)),
+  );
+  final delimParser = char(delim).map((_) => true);
+  final other = satisfy(
+    (c) => c != delim && c != '"' && c != "'",
+    'other',
+  ).map((_) => false);
+  final token = quoted.as<bool>(false) | delimParser | other;
+  final result = token.many.thenSkip(eof()).run(line);
+  return switch (result) {
+    Success(:final value) => value.where((b) => b).length,
+    _ => 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +253,10 @@ Result<ParseError, (List<String>, DelimitedDocument)> parseDelimitedWithHeaders(
 /// the delimiter that produces the expected field count wins.
 Result<ParseError, DelimitedDocument> parseDelimitedRobust(String input) {
   final clean = _stripBom(input);
-  final lines = clean.split(RegExp(r'\r\n|\r|\n'));
+  final lines = clean
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
   if (lines.isEmpty) return const Success([], 0);
 
   // Remove trailing empty line.
@@ -296,38 +305,24 @@ Result<ParseError, DelimitedDocument> parseDelimitedRobust(String input) {
 
 /// Split a single line into fields using simple quoting rules.
 List<String> _splitLine(String line, DelimitedConfig config) {
-  final fields = <String>[];
-  final buf = StringBuffer();
-  var inQuotes = false;
-  var i = 0;
+  final delim = config.delimiter;
+  final quote = config.quote;
 
-  while (i < line.length) {
-    final c = line[i];
-    if (inQuotes) {
-      if (c == config.quote) {
-        if (i + 1 < line.length && line[i + 1] == config.quote) {
-          buf.write(config.quote);
-          i += 2;
-          continue;
-        }
-        inQuotes = false;
-      } else {
-        buf.write(c);
-      }
-    } else {
-      if (c == config.quote) {
-        inQuotes = true;
-      } else if (c == config.delimiter) {
-        fields.add(buf.toString());
-        buf.clear();
-      } else {
-        buf.write(c);
-      }
-    }
-    i++;
-  }
-  fields.add(buf.toString());
-  return fields;
+  final escaped = string('$quote$quote').as<String>(quote);
+  final quotedContent =
+      (escaped | satisfy((c) => c != quote, 'quoted char')).many.capture;
+  final quotedField = char(quote).skipThen(quotedContent).thenSkip(char(quote));
+  final unquotedField =
+      satisfy((c) => c != delim && c != quote, 'field char').many.capture;
+  final field = quotedField | unquotedField;
+  final row = field.sepBy(char(delim));
+
+  final result = row.thenSkip(eof()).run(line);
+  return switch (result) {
+    Success(:final value) => value,
+    Partial(:final value) => value,
+    Failure() => [line],
+  };
 }
 
 // ---------------------------------------------------------------------------

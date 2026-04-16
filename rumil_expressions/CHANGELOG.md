@@ -1,3 +1,7 @@
+## 0.5.0
+
+- Depends on rumil ^0.5.0. Benefits from interpreter optimizations (5-9% AOT, 30-52% WasmGC).
+
 ## 0.4.0
 
 - Depends on rumil ^0.4.0. Version aligned.

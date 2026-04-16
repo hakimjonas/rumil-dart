@@ -244,7 +244,7 @@ final Parser<ParseError, String> _hclString = _lex(
 /// Parse the heredoc body line by line until the marker is found.
 Parser<ParseError, HclValue> _heredocBody(String marker, bool indented) {
   final contentChar = satisfy((c) => c != '\n', 'heredoc char');
-  final lineContent = contentChar.many.map((cs) => cs.join());
+  final lineContent = contentChar.many.capture;
   final newline = char('\n');
 
   return _heredocLines(lineContent, newline, marker, indented);
@@ -256,13 +256,14 @@ Parser<ParseError, HclValue> _heredocLines(
   String marker,
   bool indented,
 ) {
-  final terminator = satisfy((c) => c == ' ' || c == '\t', 'indent').many
-      .map((cs) => cs.join())
-      .flatMap(
-        (indent) => string(
-          marker,
-        ).flatMap((_) => (newline.as<void>(null) | eof()).map((_) => indent)),
-      );
+  final terminator = satisfy(
+    (c) => c == ' ' || c == '\t',
+    'indent',
+  ).many.capture.flatMap(
+    (indent) => string(
+      marker,
+    ).flatMap((_) => (newline.as<void>(null) | eof()).map((_) => indent)),
+  );
 
   Parser<ParseError, HclValue> go(List<String> lines) =>
       terminator.map<HclValue>((terminatorIndent) {

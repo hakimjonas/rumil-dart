@@ -54,10 +54,8 @@ final class _ContMap extends _Cont {
 
 final class _ContZipRight extends _Cont {
   final Parser<dynamic, dynamic> right;
-  final Object? leftValue;
-  final int leftConsumed;
   final _Cont next;
-  const _ContZipRight(this.right, this.leftValue, this.leftConsumed, this.next);
+  _ContZipRight(this.right, this.next);
 }
 
 final class _ContZipCombine extends _Cont {
@@ -80,7 +78,7 @@ final class _ContPartialConsumed extends _Cont {
 }
 
 Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
-  Object? currentParser = parser;
+  Parser<dynamic, dynamic> currentParser = parser;
   _Cont cont = const _ContEnd();
 
   outer:
@@ -94,12 +92,14 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
       currentParser = currentParser.source;
     }
     if (currentParser is Zip<dynamic, dynamic, dynamic>) {
-      cont = _ContZipRight(currentParser.right, null, 0, cont);
+      cont = _ContZipRight(currentParser.right, cont);
       currentParser = currentParser.left;
       continue outer;
     }
 
-    var result = _interpretTerminal<E>(currentParser!, state);
+    var result =
+        interpretI<E, dynamic>(currentParser as Parser<E, dynamic>, state)
+            as Result<E, Object?>;
 
     while (true) {
       switch (cont) {
@@ -249,22 +249,6 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
   }
 }
 
-Result<E, Object?> _interpretTerminal<E>(Object parser, ParserState state) {
-  final result = interpretI(parser as Parser<E, dynamic>, state);
-  return switch (result) {
-    Success(:final value, :final consumed) => Success<E, Object?>(
-      value,
-      consumed,
-    ),
-    Partial(:final value, :final errorThunk, :final consumed) =>
-      Partial<E, Object?>(value, errorThunk, consumed),
-    Failure(:final errorThunk, :final furthest) => Failure<E, Object?>(
-      errorThunk,
-      furthest,
-    ),
-  };
-}
-
 // ===========================================================================
 // Recursive interpreter
 // ===========================================================================
@@ -343,10 +327,11 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         return _runTrampoline<E, A>(p, state);
 
       case Or<E, A>(:final left, :final right):
-        final snapshot = state.save();
+        final simple = left.isSimple;
+        final snapshot = simple ? 0 : state.save();
         final r1 = interpretI<E, A>(left, state);
         if (r1 is! Failure<E, A>) return r1;
-        state.restore(snapshot);
+        if (!simple) state.restore(snapshot);
         final r2 = interpretI<E, A>(right, state);
         if (r2 is! Failure<E, A>) return r2;
         if (r1.furthest.offset > r2.furthest.offset) return r1;
@@ -393,6 +378,14 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
             )
             as Result<E, A>;
 
+      case Capture<E, dynamic>(parser: Many<E, dynamic>(:final parser)):
+        return _interpretCaptureMany<E, dynamic>(parser, state, required: false)
+            as Result<E, A>;
+
+      case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
+        return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
+            as Result<E, A>;
+
       case final Capture<E, dynamic> cap:
         return cap.interpretWith((inner) {
               final startOff = state.offset;
@@ -416,7 +409,8 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
 
       case final Optional<E, dynamic> opt:
         return opt.interpretWith(<T>(Parser<E, T> inner) {
-              final snapshot = state.save();
+              final simple = inner.isSimple;
+              final snapshot = simple ? 0 : state.save();
               final r = interpretI<E, T>(inner, state);
               if (r case Success<E, T>(:final value, :final consumed)) {
                 return Success<E, T?>(value, consumed);
@@ -428,7 +422,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
               )) {
                 return Partial<E, T?>(value, errorThunk, consumed);
               }
-              state.restore(snapshot);
+              if (!simple) state.restore(snapshot);
               return Success<E, T?>(null, 0);
             })
             as Result<E, A>;
@@ -612,7 +606,7 @@ Result<E, A> _interpretMemo<E, A>(
       final slot = state.memo.getRaw(key, pos);
       if (slot case MemoSlotLR(:final lr)) return lr.seed as Result<E, A>;
       if (slot case MemoSlotEntry(:final entry)) {
-        state.restoreTo(entry.endPos, state.line, state.column);
+        state.restoreTo(entry.endPos);
         return state.memo.getResult(key, pos)!;
       }
     }
@@ -620,7 +614,7 @@ Result<E, A> _interpretMemo<E, A>(
       final slot = state.memo.getRaw(key, pos);
       if (slot case MemoSlotLR(:final lr)) return lr.seed as Result<E, A>;
       if (slot case MemoSlotEntry(:final entry)) {
-        state.restoreTo(entry.endPos, state.line, state.column);
+        state.restoreTo(entry.endPos);
         return state.memo.getResult(key, pos)!;
       }
     }
@@ -633,7 +627,7 @@ Result<E, A> _evaluateMemo<E, A>(
   Parser<E, A> inner,
   MemoKey<E, A> key,
   int pos,
-  Snapshot startSnapshot,
+  int startSnapshot,
   ParserState state,
 ) {
   final slot = state.memo.getRaw(key, pos);
@@ -644,7 +638,7 @@ Result<E, A> _evaluateMemo<E, A>(
   }
 
   if (slot case MemoSlotEntry(:final entry)) {
-    state.restoreTo(entry.endPos, state.line, state.column);
+    state.restoreTo(entry.endPos);
     return entry.result as Result<E, A>;
   }
 
@@ -702,18 +696,16 @@ void _setupLR(Object key, LR lr, ParserState state) {
 Result<E, A> _growLR<E, A>(
   Parser<E, A> inner,
   MemoKey<E, A> key,
-  Snapshot startSnapshot,
+  int startSnapshot,
   LR lr,
   int seedEndPos,
   ParserState state,
 ) {
-  final pos = startSnapshot.offset;
+  final pos = startSnapshot;
   state.heads[pos] = lr.head!;
 
   var lastResult = lr.seed as Result<E, A>;
   var lastPos = seedEndPos;
-  var lastLine = state.line;
-  var lastColumn = state.column;
 
   while (true) {
     state.restore(startSnapshot);
@@ -727,13 +719,11 @@ Result<E, A> _growLR<E, A>(
 
     lastResult = result;
     lastPos = resultPos;
-    lastLine = state.line;
-    lastColumn = state.column;
     lr.seed = result;
   }
 
   state.heads.remove(pos);
-  state.restoreTo(lastPos, lastLine, lastColumn);
+  state.restoreTo(lastPos);
   state.memo.put(key, pos, lastResult, lastPos);
   return lastResult;
 }
@@ -751,7 +741,7 @@ Result<E, A> _interpretSimpleMemo<E, A>(
   final entry = state.simpleCache.getEntry(key, pos);
 
   if (entry != null) {
-    state.restoreTo(entry.endPos, state.line, state.column);
+    state.restoreTo(entry.endPos);
     return entry.result as Result<E, A>;
   }
 
@@ -764,13 +754,11 @@ Result<E, A> _interpretSimpleMemo<E, A>(
 // Specialized helpers
 // ===========================================================================
 
-bool _isSimple(Parser<dynamic, dynamic> p) => p is Satisfy || p is StringMatch;
-
 Result<E, List<A>> _interpretMany<E, A>(Parser<E, A> p, ParserState state) {
   final acc = <A>[];
   final errThunks = <List<E> Function()>[];
   var totalConsumed = 0;
-  final simple = _isSimple(p);
+  final simple = p.isSimple;
 
   while (true) {
     final snapshot = simple ? null : state.save();
@@ -841,7 +829,7 @@ Result<E, List<A>> _interpretMany1<E, A>(Parser<E, A> p, ParserState state) {
 Result<E, void> _interpretSkipMany<E, A>(Parser<E, A> p, ParserState state) {
   final errThunks = <List<E> Function()>[];
   var totalConsumed = 0;
-  final simple = _isSimple(p);
+  final simple = p.isSimple;
 
   while (true) {
     final snapshot = simple ? null : state.save();
@@ -912,6 +900,47 @@ Result<E, A> _interpretStringChoice<E, A>(
   );
   final expected = targets.map((s) => '"$s"').toSet();
   return Failure<E, A>(() => [Unexpected(found, expected, loc) as E], loc);
+}
+
+// ===========================================================================
+// Fused Capture(Many) / Capture(Many1) — skip list allocation
+// ===========================================================================
+
+Result<E, String> _interpretCaptureMany<E, A>(
+  Parser<E, A> p,
+  ParserState state, {
+  required bool required,
+}) {
+  final startOff = state.offset;
+  final errThunks = <List<E> Function()>[];
+  var totalConsumed = 0;
+  final simple = p.isSimple;
+
+  while (true) {
+    final snapshot = simple ? 0 : state.save();
+    final result = interpretI<E, A>(p, state);
+    switch (result) {
+      case Success<E, A>(:final consumed):
+        totalConsumed += consumed;
+      case Partial<E, A>(:final errorThunk, :final consumed):
+        errThunks.add(errorThunk);
+        totalConsumed += consumed;
+      case Failure<E, A>():
+        if (!simple) state.restore(snapshot);
+        if (required && totalConsumed == 0) {
+          return Failure<E, String>(result.errorThunk, result.furthest);
+        }
+        final captured = state.slice(startOff, startOff + totalConsumed);
+        if (errThunks.isEmpty) {
+          return Success<E, String>(captured, totalConsumed);
+        }
+        return Partial<E, String>(
+          captured,
+          () => errThunks.expand((t) => t()).toList(),
+          totalConsumed,
+        );
+    }
+  }
 }
 
 // ===========================================================================

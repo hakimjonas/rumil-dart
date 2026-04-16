@@ -42,11 +42,9 @@ final Parser<ParseError, JsonValue> _jsonNumber = _lex(
   char('-').optional.flatMap(
     (neg) => (char('0').as('0') |
             satisfy(
-                  (c) => c.compareTo('1') >= 0 && c.compareTo('9') <= 0,
-                  '1-9',
-                )
-                .zip(digit().many)
-                .map(((String, List<String>) pair) => pair.$1 + pair.$2.join()))
+              (c) => c.compareTo('1') >= 0 && c.compareTo('9') <= 0,
+              '1-9',
+            ).zip(digit().many).capture)
         .flatMap(
           (intPart) => char('.')
               .skipThen(digit().many1)

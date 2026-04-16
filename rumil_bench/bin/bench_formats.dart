@@ -1,4 +1,4 @@
-/// Format parser benchmarks: all 7 rumil_parsers formats.
+/// Format parser benchmarks: all 8 rumil_parsers formats.
 library;
 
 import 'package:rumil_parsers/rumil_parsers.dart';
@@ -19,6 +19,8 @@ void main() {
   final hclL = hclLarge();
   final protoS = protoSmall();
   final protoL = protoLarge();
+  final mdS = markdownSmall();
+  final mdL = markdownLarge();
 
   print('=== Format parser benchmarks ===');
 
@@ -131,6 +133,23 @@ void main() {
     'proto-50msg',
     () => parseProto(protoL),
     protoL.length,
+    warmUp: 50,
+    iterations: 500,
+  );
+
+  print('');
+  print('--- Markdown ---');
+  benchWithSize(
+    'md-readme  ',
+    () => parseMarkdown(mdS),
+    mdS.length,
+    warmUp: 200,
+    iterations: 2000,
+  );
+  benchWithSize(
+    'md-20sec   ',
+    () => parseMarkdown(mdL),
+    mdL.length,
     warmUp: 50,
     iterations: 500,
   );

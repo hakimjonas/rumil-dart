@@ -90,49 +90,41 @@ bool _isNameChar(String c) {
       (cp >= 0xDC00 && cp <= 0xDFFF);
 }
 
-final Parser<ParseError, String> _xmlName = satisfy(
+final Parser<ParseError, String> _xmlName =
+    satisfy(
       _isNameStartChar,
       'name start char',
-    )
-    .zip(satisfy(_isNameChar, 'name char').many)
-    .map(((String, List<String>) pair) => pair.$1 + pair.$2.join());
+    ).zip(satisfy(_isNameChar, 'name char').many).capture;
 
 bool _isNcNameStartChar(String c) =>
     _isNameStartChar(c) && c.codeUnitAt(0) != 0x3A;
 bool _isNcNameChar(String c) => _isNameChar(c) && c.codeUnitAt(0) != 0x3A;
-final Parser<ParseError, String> _ncName = satisfy(
+final Parser<ParseError, String> _ncName =
+    satisfy(
       _isNcNameStartChar,
       'NCName start char',
-    )
-    .zip(satisfy(_isNcNameChar, 'NCName char').many)
-    .map(((String, List<String>) pair) => pair.$1 + pair.$2.join());
+    ).zip(satisfy(_isNcNameChar, 'NCName char').many).capture;
 
-final Parser<ParseError, QName> _qualifiedName = _xmlName.flatMap((name) {
-  final colon = name.indexOf(':');
-  if (colon < 0) return succeed(QName(name));
-  if (colon == 0 ||
-      colon == name.length - 1 ||
-      name.indexOf(':', colon + 1) >= 0) {
-    return failure<ParseError, QName>(
-      CustomError('invalid QName: $name', Location.zero),
-    );
-  }
-  return succeed(
-    QName(name.substring(colon + 1), prefix: name.substring(0, colon)),
-  );
-});
+final Parser<ParseError, QName> _qualifiedName = _ncName.flatMap(
+  (first) =>
+      char(':').skipThen(_ncName).map((local) => QName(local, prefix: first)) |
+      succeed<ParseError, QName>(QName(first)),
+);
 
-Parser<ParseError, String> _charsUntil(String delim) => (string(delim)
-    .notFollowedBy
-    .skipThen(satisfy(_isXmlChar, 'XML char'))).many.map((cs) => cs.join());
+Parser<ParseError, String> _charsUntil(String delim) =>
+    (string(
+      delim,
+    ).notFollowedBy.skipThen(satisfy(_isXmlChar, 'XML char'))).many.capture;
 
 bool _isXmlChar(String c) {
   final cp = c.codeUnitAt(0);
   return cp == 0x9 || cp == 0xA || cp == 0xD || (cp >= 0x20 && cp <= 0xFFFD);
 }
 
-final Parser<ParseError, String> _commentContent = (string('--').notFollowedBy
-    .skipThen(satisfy(_isXmlChar, 'XML char'))).many.map((cs) => cs.join());
+final Parser<ParseError, String> _commentContent =
+    (string(
+      '--',
+    ).notFollowedBy.skipThen(satisfy(_isXmlChar, 'XML char'))).many.capture;
 
 final Parser<ParseError, XmlNode> _xmlComment = string('<!--')
     .skipThen(_commentContent)
@@ -226,29 +218,26 @@ Parser<ParseError, String> _entityRef(
     );
 
 String? _validateTextDecl(String content) {
-  if (content.startsWith('<?xml')) {
-    final declEnd = content.indexOf('?>');
-    if (declEnd < 0) return 'unterminated text declaration';
-    final decl = content.substring(0, declEnd + 2);
-    final result = _textDecl.run(decl);
-    if (result is Failure) return 'malformed text declaration';
-    final version = (result as Success).value as String?;
-    if (version != null && version != '1.0') {
-      return 'text declaration version $version (expected 1.0)';
+  final declResult = _textDecl.run(content);
+  if (declResult case Success(:final value)) {
+    if (value != null && value != '1.0') {
+      return 'text declaration version $value (expected 1.0)';
     }
     return null;
   }
-  if (content.length >= 5 &&
-      content.substring(0, 5).toLowerCase() == '<?xml' &&
-      !content.startsWith('<?xml')) {
-    return 'text declaration must use lowercase <?xml';
-  }
-  final idx = content.indexOf('<?xml');
-  if (idx > 0 && idx + 5 < content.length) {
-    final after = content[idx + 5];
-    if (after == ' ' || after == '\t' || after == '\r' || after == '\n') {
-      return 'text declaration not at start of external entity';
+  if (content.length >= 5) {
+    final prefix = content.substring(0, 5);
+    if (prefix != '<?xml' && prefix.toLowerCase() == '<?xml') {
+      return 'text declaration must use lowercase <?xml';
     }
+  }
+  final innerParser = satisfy((c) => c != '<', 'non-lt').many1
+      .skipThen(string('<?xml'))
+      .skipThen(
+        satisfy((c) => c == ' ' || c == '\t' || c == '\r' || c == '\n', 'ws'),
+      );
+  if (innerParser.run(content) is Success) {
+    return 'text declaration not at start of external entity';
   }
   return null;
 }
@@ -273,6 +262,13 @@ final Parser<ParseError, String?> _textDecl = string('<?xml')
     .thenSkip(_ws)
     .thenSkip(string('?>'));
 
+final Parser<ParseError, String> _entityRefName = char('&').skipThen(
+  satisfy(
+    (c) => c != '#' && c != ';',
+    'entity name char',
+  ).many1.capture.thenSkip(char(';')),
+);
+
 String? _checkReplacementText(
   String text,
   _Ctx ctx, {
@@ -282,30 +278,44 @@ String? _checkReplacementText(
     if (text.contains('<')) {
       return '< in entity replacement text used in attribute';
     }
-    if (text.contains('&')) {
-      for (var i = 0; i < text.length; i++) {
-        if (text[i] == '&' && i + 1 < text.length && text[i + 1] != '#') {
-          final semi = text.indexOf(';', i + 1);
-          if (semi > i + 1) {
-            final ref = text.substring(i + 1, semi);
-            final refInfo = ctx.entities[ref];
-            if (refInfo != null && refInfo.kind == _EntityKind.external) {
-              return 'indirect external entity ref &$ref; in attribute';
-            }
-            if (refInfo != null && refInfo.kind == _EntityKind.unparsed) {
-              return 'indirect unparsed entity ref &$ref; in attribute';
-            }
-            if (refInfo?.value != null) {
-              final inner = _checkReplacementText(
-                refInfo!.value!,
-                ctx,
-                inAttribute: true,
-              );
-              if (inner != null) return inner;
-            }
-            i = semi;
+    final scanParser = (satisfy((c) => c != '&', 'non-amp').many.skipThen(
+      _entityRefName.flatMap((ref) {
+        final refInfo = ctx.entities[ref];
+        if (refInfo != null && refInfo.kind == _EntityKind.external) {
+          return failure<ParseError, void>(
+            CustomError(
+              'indirect external entity ref &$ref; in attribute',
+              Location.zero,
+            ),
+          );
+        }
+        if (refInfo != null && refInfo.kind == _EntityKind.unparsed) {
+          return failure<ParseError, void>(
+            CustomError(
+              'indirect unparsed entity ref &$ref; in attribute',
+              Location.zero,
+            ),
+          );
+        }
+        if (refInfo?.value != null) {
+          final inner = _checkReplacementText(
+            refInfo!.value!,
+            ctx,
+            inAttribute: true,
+          );
+          if (inner != null) {
+            return failure<ParseError, void>(CustomError(inner, Location.zero));
           }
         }
+        return succeed<ParseError, void>(null);
+      }),
+    )).many.thenSkip(satisfy((c) => c != '&', 'non-amp').many).thenSkip(eof());
+    if (text.contains('&')) {
+      final result = scanParser.run(text);
+      if (result is Failure) {
+        final msg = result.errors.firstOrNull;
+        if (msg is CustomError) return msg.message;
+        return 'invalid entity reference in attribute replacement text';
       }
     }
   }
@@ -405,30 +415,24 @@ _validatedAttributes(_Ctx ctx, QName elementName) => _attributes(ctx).flatMap((
 
   String expandAttrValue(String value) {
     if (!value.contains('&')) return value;
-    final buf = StringBuffer();
-    for (var i = 0; i < value.length; i++) {
-      if (value[i] == '&') {
-        final semi = value.indexOf(';', i + 1);
-        if (semi > i + 1) {
-          final ref = value.substring(i + 1, semi);
+    final entityRef = char('&')
+        .skipThen(satisfy((c) => c != ';', 'ref char').many1.capture)
+        .thenSkip(char(';'))
+        .map((ref) {
           final builtin = xmlEntities[ref];
-          if (builtin != null) {
-            buf.write(builtin);
-          } else {
-            final info = ctx.entities[ref];
-            if (info != null && info.value != null) {
-              buf.write(info.value!);
-            } else {
-              buf.write(value.substring(i, semi + 1));
-            }
-          }
-          i = semi;
-          continue;
-        }
-      }
-      buf.write(value[i]);
-    }
-    return buf.toString();
+          if (builtin != null) return builtin;
+          final info = ctx.entities[ref];
+          if (info != null && info.value != null) return info.value!;
+          return '&$ref;';
+        });
+    final segment =
+        entityRef | satisfy((c) => c != '&', 'non-amp').many1.capture;
+    final result = segment.many.thenSkip(eof()).run(value);
+    return switch (result) {
+      Success(:final value) => value.join(),
+      Partial(:final value) => value.join(),
+      Failure() => value,
+    };
   }
 
   String normalizeAttrValue(String value, QName attrName) {
@@ -750,18 +754,12 @@ Parser<ParseError, String> _entityValue() {
 final Parser<ParseError, String> _systemLiteral =
     char('"')
         .skipThen(
-          satisfy(
-            (c) => c != '"' && _isXmlChar(c),
-            'char',
-          ).many.map((cs) => cs.join()),
+          satisfy((c) => c != '"' && _isXmlChar(c), 'char').many.capture,
         )
         .thenSkip(char('"')) |
     char("'")
         .skipThen(
-          satisfy(
-            (c) => c != "'" && _isXmlChar(c),
-            'char',
-          ).many.map((cs) => cs.join()),
+          satisfy((c) => c != "'" && _isXmlChar(c), 'char').many.capture,
         )
         .thenSkip(char("'"));
 

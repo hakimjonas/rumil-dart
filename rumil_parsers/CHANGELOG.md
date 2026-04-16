@@ -1,3 +1,15 @@
+## 0.5.0
+
+**CommonMark Markdown parser. Architecture audit. 7376 tests.**
+
+- **Markdown:** 652/652 CommonMark 0.31.2 spec conformance. Typed `MdNode` AST with structured fields (`MdHeading.level`, `MdLink.href`, `MdImage.alt`) — separates parsing from rendering. Public API: `parseMarkdown(String) → Result<ParseError, MdDocument>`.
+- **TOML:** Replace `throw`/`try-catch` with `Result`-based error flow. Zero exceptions in the parser.
+- **XML:** Replace manual `indexOf`/`substring` with combinators for QName parsing, entity reference validation, and attribute value expansion.
+- **Delimited:** Replace `while`-loop field splitter and `RegExp` with combinator parsers.
+- **All formats:** Apply `.capture` optimization (12 sites) — each benefits from fused `Capture(Many)` interpreter fast path.
+- **TOML:** Deduplicate unicode escape parsers into parameterized `_unicodeEscape(marker, count)`.
+- Depends on rumil ^0.5.0.
+
 ## 0.4.0
 
 **All parsers to spec conformance. 6724 tests, zero analyzer warnings.**

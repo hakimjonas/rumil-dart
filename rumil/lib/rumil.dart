@@ -11,4 +11,4 @@ export 'src/parser.dart';
 export 'src/primitives.dart';
 export 'src/radix.dart' show RadixNode;
 export 'src/result.dart';
-export 'src/state.dart' show ParserState, Snapshot;
+export 'src/state.dart' show ParserState;

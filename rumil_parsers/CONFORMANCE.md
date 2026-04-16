@@ -2,7 +2,7 @@
 
 rumil_parsers verifies each parser against the official specification test suite for its format. This document records methodology, results, status, and design plans for all parsers.
 
-Last verified: 2026-04-13.
+Last verified: 2026-04-16.
 
 ## Results
 
@@ -15,6 +15,7 @@ Last verified: 2026-04-13.
 | Proto3 | [Language Guide](https://protobuf.dev/programming-guides/proto3/) | protobuf repo `.proto` files | **101/101 (100%)** |
 | XML | W3C XML 1.0 5e | [W3C XML Test Suite](https://www.w3.org/XML/Test/) | **1506/1506 (100%)** |
 | HCL | [HashiCorp spec](https://github.com/hashicorp/hcl/blob/main/hclsyntax/spec.md) | specsuite + fuzz + terraform-provider-aws | **2760/2760 (100%)** |
+| Markdown | CommonMark 0.31.2 | [CommonMark spec](https://spec.commonmark.org/0.31.2/) | **652/652 (100%)** |
 
 ---
 
@@ -154,3 +155,20 @@ Non-evaluating parser covering the full HCL syntax specification:
 **Comments:** `#`, `//`, `/* */`.
 
 **Unicode:** Identifiers support Unicode letters (matching Go's `unicode.IsLetter`).
+
+---
+
+## Markdown -- 652/652 (100%)
+
+**Spec:** CommonMark 0.31.2
+**Suite:** [CommonMark spec examples](https://spec.commonmark.org/0.31.2/) (652 examples)
+
+All 652 examples pass. The conformance test uses a test-internal `mdToHtml` renderer to compare parser output against the spec's expected HTML.
+
+The parser produces a typed `MdNode` AST with structured fields (`MdHeading.level`, `MdLink.href`, `MdImage.alt`) instead of HTML element tags. This separates parsing from rendering — the AST can be converted to HTML, LaTeX, terminal ANSI, or queried programmatically.
+
+**Block-level:** ATX and setext headings, paragraphs, block quotes (nested, lazy continuation), ordered and unordered lists (tight/loose detection, start number), fenced and indented code blocks, HTML blocks (types 1-7), thematic breaks, link reference definitions (two-pass for forward references).
+
+**Inline-level:** Emphasis and strong emphasis (CommonMark delimiter algorithm per spec section 6.2), links (inline, reference, collapsed, shortcut), images, code spans, autolinks (URI and email), raw inline HTML, hard and soft line breaks, backslash escapes, HTML entity references (2125 named entities + numeric).
+
+**Architecture:** Indentation-aware block parsing via `peekIndent`/`indent(n)` + `flatMap`, parameterized parsers for nested structures, `notFollowedBy` for block boundaries. Tab expansion and input normalization as pre-processing. Two-pass link reference resolution.

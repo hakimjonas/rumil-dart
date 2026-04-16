@@ -733,19 +733,20 @@ final Parser<ParseError, YamlValue> _flowMapping = () {
 
 /// Anchor/alias name: any non-whitespace character that is not a flow
 /// indicator (§6.9.2). YAML 1.2 allows much more than just word chars.
-final Parser<ParseError, String> _anchorName = satisfy(
-  (c) =>
-      c != ' ' &&
-      c != '\t' &&
-      c != '\n' &&
-      c != '\r' &&
-      c != '[' &&
-      c != ']' &&
-      c != '{' &&
-      c != '}' &&
-      c != ',',
-  'anchor name char',
-).many1.map((cs) => cs.join());
+final Parser<ParseError, String> _anchorName =
+    satisfy(
+      (c) =>
+          c != ' ' &&
+          c != '\t' &&
+          c != '\n' &&
+          c != '\r' &&
+          c != '[' &&
+          c != ']' &&
+          c != '{' &&
+          c != '}' &&
+          c != ',',
+      'anchor name char',
+    ).many1.capture;
 
 /// Alias: `*name` as a value.
 final Parser<ParseError, YamlValue> _yamlAlias = char(

@@ -28,16 +28,16 @@ Rumil builds typed `JsonValue` AST nodes. To isolate parser dispatch overhead fr
 
 | Input          | petit-raw (dynamic) | petit-typed (JsonValue) | Rumil (JsonValue) |
 |----------------|---------------------|-------------------------|-------------------|
-| Small (39 B)   | 2.0 μs              | 2.1 μs                  | 26 μs             |
-| Medium (45 KB) | 2.9 ms              | 3.1 ms                  | 38 ms             |
-| Large (803 KB) | 48 ms               | 50 ms                   | 478 ms            |
+| Small (39 B)   | 1.9 μs              | 2.0 μs                  | 25 μs             |
+| Medium (45 KB) | 2.7 ms              | 2.8 ms                  | 35 ms             |
+| Large (803 KB) | 44 ms               | 45 ms                   | 449 ms            |
 
 AST construction adds 3-6% to petitparser's time. The gap is almost entirely parser dispatch cost.
 
 | Comparison                  | Small | Medium | Large |
 |-----------------------------|-------|--------|-------|
 | Rumil vs petit-raw          | 13x   | 13x    | 10x   |
-| Rumil vs petit-typed (fair) | 12x   | 12x    | 10x   |
+| Rumil vs petit-typed (fair) | 13x   | 13x    | 10x   |
 
 ### Expression evaluation (AOT native)
 
@@ -51,10 +51,10 @@ AST construction adds 3-6% to petitparser's time. The gap is almost entirely par
 ### Where the overhead comes from
 
 The 10-13x gap is architectural. Per parser step, Rumil does:
-1. Trampoline loop iteration (while + is-check on `currentParser`)
+1. Trampoline loop iteration (type check on `currentParser`)
 2. `interpretI` switch (26-case sealed class dispatch)
 3. Result construction (Success/Partial/Failure allocation)
-4. Continuation switch (7-case `_Cont` dispatch)
+4. Continuation switch (8-case `_Cont` dispatch)
 
 Petitparser does one virtual method call (`parseOn`).
 
@@ -65,7 +65,7 @@ Petitparser optimizes for throughput via virtual dispatch and mutable parser gra
 - Left recursion (`rule()`) via Warth seed-growth
 - Typed errors with location (`ParseError` sealed hierarchy with line/column/offset)
 - Stack safety via defunctionalized trampoline (tested to 10M depth)
-- Lazy error construction (`late final` thunks skip error building on backtracking success paths)
+- Lazy error construction (nullable-cache thunks skip error building on backtracking success paths)
 - Parser inspection (ADT nodes can be analyzed, transformed, and optimized at construction time)
 - Memoization (opt-in with `.memoize` or automatic via `rule()`)
 
@@ -79,9 +79,9 @@ Same benchmarks compiled two ways.
 
 | Input          | AOT native | WasmGC  | Wasm speedup |
 |----------------|------------|---------|--------------|
-| Small (39 B)   | 26 μs      | 18 μs   | 1.4x faster  |
-| Medium (45 KB) | 38 ms      | 28 ms   | 1.4x faster  |
-| Large (803 KB) | 478 ms     | 371 ms  | 1.3x faster  |
+| Small (39 B)   | 25 μs      | 11 μs   | 2.3x faster  |
+| Medium (45 KB) | 35 ms      | 18 ms   | 1.9x faster  |
+| Large (803 KB) | 449 ms     | 227 ms  | 2.0x faster  |
 
 ### Expression evaluation
 
@@ -96,21 +96,21 @@ Same benchmarks compiled two ways.
 
 | Input          | Rumil (Wasm) | petit-typed (Wasm) | Ratio |
 |----------------|--------------|--------------------|-------|
-| Small (39 B)   | 18 μs        | 5.0 μs             | 3.6x  |
-| Medium (45 KB) | 28 ms        | 7.3 ms             | 3.8x  |
-| Large (803 KB) | 371 ms       | 120 ms             | 3.1x  |
+| Small (39 B)   | 11 μs        | 2.6 μs             | 4.3x  |
+| Medium (45 KB) | 18 ms        | 4.0 ms             | 4.4x  |
+| Large (803 KB) | 227 ms       | 68 ms              | 3.4x  |
 
 ### How Wasm changes the picture
 
 |                     | AOT native | WasmGC  | Change       |
 |---------------------|------------|---------|--------------|
-| Rumil               | 38 ms      | 28 ms   | 1.4x faster  |
-| Petitparser (typed) | 3.1 ms     | 7.3 ms  | 2.4x slower  |
-| Rumil/petit ratio   | 12x        | 3.8x    |              |
+| Rumil               | 35 ms      | 18 ms   | 2.0x faster  |
+| Petitparser (typed) | 2.8 ms     | 4.0 ms  | 1.4x slower  |
+| Rumil/petit ratio   | 13x        | 4.4x    |              |
 
-Rumil gets ~1.4x faster under WasmGC. Petitparser gets ~2.4x slower. The gap narrows from 12x (AOT) to 3.8x (Wasm).
+Rumil gets ~2x faster under WasmGC. Petitparser gets ~1.4x slower. The gap narrows from 13x (AOT) to 4.4x (Wasm).
 
-Likely explanation: Rumil's sealed class hierarchy compiles to WasmGC struct types with `br_on_cast` dispatch, which V8's WasmGC optimizer handles well. Petitparser's virtual dispatch compiles to indirect `call_ref`, which WasmGC optimizes less aggressively.
+Rumil's sealed class hierarchy compiles to WasmGC struct types with `br_on_cast` dispatch, which V8's WasmGC optimizer handles well. The interpreter optimizations (lazy line/column tracking, nullable error caches, fused Capture(Many) fast path) disproportionately benefit WasmGC where write barriers and object sizes are more visible.
 
 ---
 
@@ -154,43 +154,47 @@ final expr = rule(() =>
 
 | Format    | Input                | Time     | Throughput |
 |-----------|----------------------|----------|------------|
-| CSV       | 100 rows (5 KB)      | 1.4 ms   | 3.5 MB/s   |
-| CSV       | 1000 rows (98 KB)    | 22 ms    | 4.4 MB/s   |
-| TOML      | Config (372 B)       | 254 μs   | 1.5 MB/s   |
-| TOML      | 50 services (5.6 KB) | 4.6 ms   | 1.2 MB/s   |
-| XML       | 20 elements (3.3 KB) | 2.6 ms   | 1.3 MB/s   |
-| XML       | 200 elements (39 KB) | 28 ms    | 1.4 MB/s   |
-| YAML      | Config (317 B)       | 539 μs   | 0.6 MB/s   |
-| YAML      | 100 services (20 KB) | 29 ms    | 0.7 MB/s   |
-| HCL       | Config (303 B)       | 273 μs   | 1.1 MB/s   |
-| HCL       | 50 resources (12 KB) | 11 ms    | 1.1 MB/s   |
-| Proto3    | Schema (499 B)       | 416 μs   | 1.2 MB/s   |
-| Proto3    | 50 messages (16 KB)  | 13 ms    | 1.2 MB/s   |
+| CSV       | 100 rows (5 KB)      | 2.1 ms   | 2.4 MB/s   |
+| CSV       | 1000 rows (98 KB)    | 21 ms    | 4.6 MB/s   |
+| TOML      | Config (372 B)       | 230 μs   | 1.6 MB/s   |
+| TOML      | 50 services (5.6 KB) | 4.2 ms   | 1.3 MB/s   |
+| XML       | 20 elements (3.3 KB) | 2.5 ms   | 1.3 MB/s   |
+| XML       | 200 elements (39 KB) | 27 ms    | 1.4 MB/s   |
+| YAML      | Config (317 B)       | 491 μs   | 0.6 MB/s   |
+| YAML      | 100 services (20 KB) | 27 ms    | 0.7 MB/s   |
+| HCL       | Config (303 B)       | 253 μs   | 1.2 MB/s   |
+| HCL       | 50 resources (12 KB) | 10.5 ms  | 1.2 MB/s   |
+| Proto3    | Schema (499 B)       | 392 μs   | 1.3 MB/s   |
+| Proto3    | 50 messages (16 KB)  | 12.2 ms  | 1.3 MB/s   |
+| Markdown  | README (969 B)       | 4.3 ms   | 0.2 MB/s   |
+| Markdown  | 20 sections (14 KB)  | 78 ms    | 0.2 MB/s   |
 
 ### WasmGC
 
 | Format    | Input                | Time     | Throughput | vs AOT       |
 |-----------|----------------------|----------|------------|--------------|
-| CSV       | 100 rows (5 KB)      | 1.4 ms   | 3.5 MB/s   | 1.0x         |
-| CSV       | 1000 rows (98 KB)    | 27 ms    | 3.7 MB/s   | 0.8x slower  |
-| TOML      | Config (372 B)       | 234 μs   | 1.6 MB/s   | 1.1x faster  |
-| TOML      | 50 services (5.6 KB) | 4.3 ms   | 1.3 MB/s   | 1.1x faster  |
-| XML       | 20 elements (3.3 KB) | 1.9 ms   | 1.7 MB/s   | 1.3x faster  |
-| XML       | 200 elements (39 KB) | 22 ms    | 1.7 MB/s   | 1.2x faster  |
-| YAML      | Config (317 B)       | 425 μs   | 0.7 MB/s   | 1.2x faster  |
-| YAML      | 100 services (20 KB) | 25 ms    | 0.8 MB/s   | 1.1x faster  |
-| HCL       | Config (303 B)       | 188 μs   | 1.6 MB/s   | 1.5x faster  |
-| HCL       | 50 resources (12 KB) | 8.1 ms   | 1.5 MB/s   | 1.4x faster  |
-| Proto3    | Schema (499 B)       | 278 μs   | 1.8 MB/s   | 1.5x faster  |
-| Proto3    | 50 messages (16 KB)  | 8.9 ms   | 1.8 MB/s   | 1.5x faster  |
+| CSV       | 100 rows (5 KB)      | 979 μs   | 5.1 MB/s   | 2.1x faster  |
+| CSV       | 1000 rows (98 KB)    | 13 ms    | 7.5 MB/s   | 1.6x faster  |
+| TOML      | Config (372 B)       | 124 μs   | 3.0 MB/s   | 1.9x faster  |
+| TOML      | 50 services (5.6 KB) | 2.2 ms   | 2.5 MB/s   | 1.9x faster  |
+| XML       | 20 elements (3.3 KB) | 1.2 ms   | 2.8 MB/s   | 2.2x faster  |
+| XML       | 200 elements (39 KB) | 14 ms    | 2.8 MB/s   | 2.0x faster  |
+| YAML      | Config (317 B)       | 287 μs   | 1.1 MB/s   | 1.7x faster  |
+| YAML      | 100 services (20 KB) | 16 ms    | 1.2 MB/s   | 1.7x faster  |
+| HCL       | Config (303 B)       | 108 μs   | 2.8 MB/s   | 2.3x faster  |
+| HCL       | 50 resources (12 KB) | 4.8 ms   | 2.5 MB/s   | 2.2x faster  |
+| Proto3    | Schema (499 B)       | 170 μs   | 2.9 MB/s   | 2.3x faster  |
+| Proto3    | 50 messages (16 KB)  | 5.5 ms   | 2.9 MB/s   | 2.2x faster  |
+| Markdown  | README (969 B)       | 1.9 ms   | 0.5 MB/s   | 2.2x faster  |
+| Markdown  | 20 sections (14 KB)  | 36 ms    | 0.4 MB/s   | 2.2x faster  |
 
-CSV is fastest (simple grammar, no backtracking). YAML is slowest (indentation-sensitive, heavy backtracking). WasmGC is 1.1-1.5x faster than AOT native for most formats.
+CSV is fastest (simple grammar, no backtracking). Markdown is slowest (context-sensitive, two-pass link resolution, emphasis delimiter algorithm, heavy backtracking). WasmGC is consistently 1.6-2.3x faster than AOT native across all formats.
 
 ---
 
 ## Lazy error construction (AOT native)
 
-The `late final` thunk optimization avoids constructing error messages for failing alternatives during backtracking.
+The nullable-cache thunk optimization avoids constructing error messages for failing alternatives during backtracking.
 
 | Scenario                                           | Time               |
 |----------------------------------------------------|--------------------|
@@ -203,8 +207,8 @@ The `late final` thunk optimization avoids constructing error messages for faili
 
 ## Summary
 
-Rumil is 10-12x slower than petitparser on AOT native and 3-4x slower on WasmGC. This is the cost of the sealed ADT interpreter architecture that enables typed errors, left recursion, parser inspection, memoization, and stack safety.
+Rumil is 10-13x slower than petitparser on AOT native and 3-4x slower on WasmGC. This is the cost of the sealed ADT interpreter architecture that enables typed errors, left recursion, parser inspection, memoization, and stack safety.
 
-WasmGC narrows the gap because V8 optimizes sealed class dispatch (`br_on_cast`) better than Dart AOT does, while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls.
+WasmGC is now consistently 2x faster than AOT native for Rumil. The interpreter optimizations — lazy line/column tracking (single-int save/restore), nullable error caches (no `late final` overhead), and fused `Capture(Many)` (zero intermediate list allocation) — disproportionately benefit WasmGC where write barriers and per-object size are explicit costs that the runtime cannot hide behind JIT speculation.
 
 For maximum throughput on fixed formats, use `dart:convert` or handwritten parsers. Rumil is for grammars that need combinator composition, precise error reporting, or left recursion.
