@@ -4,6 +4,7 @@ library;
 // AST types
 export 'src/ast/hcl.dart';
 export 'src/ast/json.dart';
+export 'src/ast/markdown.dart';
 export 'src/ast/proto.dart';
 export 'src/ast/toml.dart';
 export 'src/ast/xml.dart';
@@ -35,6 +36,7 @@ export 'src/delimited.dart'
         defaultCsvConfig;
 export 'src/hcl.dart' show parseHcl;
 export 'src/json.dart' show parseJson;
+export 'src/markdown.dart' show parseMarkdown;
 export 'src/proto.dart' show parseProto;
 export 'src/toml.dart' show parseToml;
 export 'src/xml.dart' show parseXml, parseXmlFragment;
