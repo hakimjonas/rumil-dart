@@ -323,10 +323,11 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         return _runTrampoline<E, A>(p, state);
 
       case Or<E, A>(:final left, :final right):
-        final snapshot = state.save();
+        final simple = left.isSimple;
+        final snapshot = simple ? 0 : state.save();
         final r1 = interpretI<E, A>(left, state);
         if (r1 is! Failure<E, A>) return r1;
-        state.restore(snapshot);
+        if (!simple) state.restore(snapshot);
         final r2 = interpretI<E, A>(right, state);
         if (r2 is! Failure<E, A>) return r2;
         if (r1.furthest.offset > r2.furthest.offset) return r1;
@@ -396,7 +397,8 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
 
       case final Optional<E, dynamic> opt:
         return opt.interpretWith(<T>(Parser<E, T> inner) {
-              final snapshot = state.save();
+              final simple = inner.isSimple;
+              final snapshot = simple ? 0 : state.save();
               final r = interpretI<E, T>(inner, state);
               if (r case Success<E, T>(:final value, :final consumed)) {
                 return Success<E, T?>(value, consumed);
@@ -408,7 +410,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
               )) {
                 return Partial<E, T?>(value, errorThunk, consumed);
               }
-              state.restore(snapshot);
+              if (!simple) state.restore(snapshot);
               return Success<E, T?>(null, 0);
             })
             as Result<E, A>;
@@ -740,13 +742,11 @@ Result<E, A> _interpretSimpleMemo<E, A>(
 // Specialized helpers
 // ===========================================================================
 
-bool _isSimple(Parser<dynamic, dynamic> p) => p is Satisfy || p is StringMatch;
-
 Result<E, List<A>> _interpretMany<E, A>(Parser<E, A> p, ParserState state) {
   final acc = <A>[];
   final errThunks = <List<E> Function()>[];
   var totalConsumed = 0;
-  final simple = _isSimple(p);
+  final simple = p.isSimple;
 
   while (true) {
     final snapshot = simple ? null : state.save();
@@ -817,7 +817,7 @@ Result<E, List<A>> _interpretMany1<E, A>(Parser<E, A> p, ParserState state) {
 Result<E, void> _interpretSkipMany<E, A>(Parser<E, A> p, ParserState state) {
   final errThunks = <List<E> Function()>[];
   var totalConsumed = 0;
-  final simple = _isSimple(p);
+  final simple = p.isSimple;
 
   while (true) {
     final snapshot = simple ? null : state.save();
