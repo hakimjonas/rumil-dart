@@ -54,10 +54,8 @@ final class _ContMap extends _Cont {
 
 final class _ContZipRight extends _Cont {
   final Parser<dynamic, dynamic> right;
-  final Object? leftValue;
-  final int leftConsumed;
   final _Cont next;
-  const _ContZipRight(this.right, this.leftValue, this.leftConsumed, this.next);
+  _ContZipRight(this.right, this.next);
 }
 
 final class _ContZipCombine extends _Cont {
@@ -80,7 +78,7 @@ final class _ContPartialConsumed extends _Cont {
 }
 
 Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
-  Object? currentParser = parser;
+  Parser<dynamic, dynamic> currentParser = parser;
   _Cont cont = const _ContEnd();
 
   outer:
@@ -94,12 +92,12 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
       currentParser = currentParser.source;
     }
     if (currentParser is Zip<dynamic, dynamic, dynamic>) {
-      cont = _ContZipRight(currentParser.right, null, 0, cont);
+      cont = _ContZipRight(currentParser.right, cont);
       currentParser = currentParser.left;
       continue outer;
     }
 
-    var result = _interpretTerminal<E>(currentParser!, state);
+    var result = interpretI<E, dynamic>(currentParser as Parser<E, dynamic>, state) as Result<E, Object?>;
 
     while (true) {
       switch (cont) {
@@ -168,10 +166,7 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
             :final errorThunk,
             :final consumed,
           )) {
-            cont = _ContPartial(
-              errorThunk,
-              _ContZipCombine(value, consumed, next),
-            );
+            cont = _ContPartial(errorThunk, _ContZipCombine(value, consumed, next));
             currentParser = right;
             continue outer;
           }
@@ -249,21 +244,6 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
   }
 }
 
-Result<E, Object?> _interpretTerminal<E>(Object parser, ParserState state) {
-  final result = interpretI(parser as Parser<E, dynamic>, state);
-  return switch (result) {
-    Success(:final value, :final consumed) => Success<E, Object?>(
-      value,
-      consumed,
-    ),
-    Partial(:final value, :final errorThunk, :final consumed) =>
-      Partial<E, Object?>(value, errorThunk, consumed),
-    Failure(:final errorThunk, :final furthest) => Failure<E, Object?>(
-      errorThunk,
-      furthest,
-    ),
-  };
-}
 
 // ===========================================================================
 // Recursive interpreter
