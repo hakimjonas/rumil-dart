@@ -162,9 +162,7 @@ final class MdCodeBlock extends MdNode {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is MdCodeBlock &&
-          language == other.language &&
-          code == other.code;
+      other is MdCodeBlock && language == other.language && code == other.code;
   @override
   int get hashCode => Object.hash(language, code);
   @override

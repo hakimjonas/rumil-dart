@@ -97,7 +97,9 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
       continue outer;
     }
 
-    var result = interpretI<E, dynamic>(currentParser as Parser<E, dynamic>, state) as Result<E, Object?>;
+    var result =
+        interpretI<E, dynamic>(currentParser as Parser<E, dynamic>, state)
+            as Result<E, Object?>;
 
     while (true) {
       switch (cont) {
@@ -166,7 +168,10 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
             :final errorThunk,
             :final consumed,
           )) {
-            cont = _ContPartial(errorThunk, _ContZipCombine(value, consumed, next));
+            cont = _ContPartial(
+              errorThunk,
+              _ContZipCombine(value, consumed, next),
+            );
             currentParser = right;
             continue outer;
           }
@@ -243,7 +248,6 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
     }
   }
 }
-
 
 // ===========================================================================
 // Recursive interpreter
@@ -375,14 +379,12 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
             as Result<E, A>;
 
       case Capture<E, dynamic>(parser: Many<E, dynamic>(:final parser)):
-        return _interpretCaptureMany<E, dynamic>(
-          parser, state, required: false,
-        ) as Result<E, A>;
+        return _interpretCaptureMany<E, dynamic>(parser, state, required: false)
+            as Result<E, A>;
 
       case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
-        return _interpretCaptureMany<E, dynamic>(
-          parser, state, required: true,
-        ) as Result<E, A>;
+        return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
+            as Result<E, A>;
 
       case final Capture<E, dynamic> cap:
         return cap.interpretWith((inner) {

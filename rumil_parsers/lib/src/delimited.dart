@@ -120,7 +120,10 @@ String _stripBom(String input) =>
 /// - Whether the first row is a header
 DelimitedConfig detectDialect(String input, {int sampleLines = 20}) {
   final clean = _stripBom(input);
-  final lines = clean.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+  final lines = clean
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
   final sample = lines.take(sampleLines).where((l) => l.isNotEmpty).toList();
   if (sample.isEmpty) return defaultDelimitedConfig;
 
@@ -174,11 +177,14 @@ DelimitedConfig detectDialect(String input, {int sampleLines = 20}) {
 
 /// Count occurrences of [delim] outside quoted regions in [line].
 int _countDelimiters(String line, String delim) {
-  final quoted = (char('"') | char("'")).flatMap((q) =>
-    satisfy((c) => c != q, 'quoted').many.skipThen(char(q)));
+  final quoted = (char('"') | char("'")).flatMap(
+    (q) => satisfy((c) => c != q, 'quoted').many.skipThen(char(q)),
+  );
   final delimParser = char(delim).map((_) => true);
-  final other = satisfy((c) => c != delim && c != '"' && c != "'", 'other')
-      .map((_) => false);
+  final other = satisfy(
+    (c) => c != delim && c != '"' && c != "'",
+    'other',
+  ).map((_) => false);
   final token = quoted.as<bool>(false) | delimParser | other;
   final result = token.many.thenSkip(eof()).run(line);
   return switch (result) {
@@ -247,7 +253,10 @@ Result<ParseError, (List<String>, DelimitedDocument)> parseDelimitedWithHeaders(
 /// the delimiter that produces the expected field count wins.
 Result<ParseError, DelimitedDocument> parseDelimitedRobust(String input) {
   final clean = _stripBom(input);
-  final lines = clean.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
+  final lines = clean
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .split('\n');
   if (lines.isEmpty) return const Success([], 0);
 
   // Remove trailing empty line.
@@ -300,9 +309,8 @@ List<String> _splitLine(String line, DelimitedConfig config) {
   final quote = config.quote;
 
   final escaped = string('$quote$quote').as<String>(quote);
-  final quotedContent = (escaped | satisfy((c) => c != quote, 'quoted char'))
-      .many
-      .capture;
+  final quotedContent =
+      (escaped | satisfy((c) => c != quote, 'quoted char')).many.capture;
   final quotedField = char(quote).skipThen(quotedContent).thenSkip(char(quote));
   final unquotedField =
       satisfy((c) => c != delim && c != quote, 'field char').many.capture;

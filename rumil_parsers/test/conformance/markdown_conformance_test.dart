@@ -7,8 +7,9 @@ import 'package:test/test.dart';
 
 void main() {
   final specFile = File('test/conformance/spec/commonmark-0.31.2.json');
-  final examples = (jsonDecode(specFile.readAsStringSync()) as List)
-      .cast<Map<String, Object?>>();
+  final examples =
+      (jsonDecode(specFile.readAsStringSync()) as List)
+          .cast<Map<String, Object?>>();
 
   final sections = <String>{};
   for (final e in examples) {
@@ -36,7 +37,8 @@ void main() {
           expect(
             _normalize(actualHtml),
             _normalize(expectedHtml),
-            reason: 'Example $num ($section)\n'
+            reason:
+                'Example $num ($section)\n'
                 'Input: ${jsonEncode(md)}\n'
                 'Expected: ${jsonEncode(expectedHtml)}\n'
                 'Actual:   ${jsonEncode(actualHtml)}',
@@ -47,18 +49,18 @@ void main() {
   }
 }
 
-String _normalize(String html) => html
-    .replaceAll(RegExp(r'\s+'), ' ')
-    .replaceAll(RegExp(r'>\s+<'), '><')
-    .replaceAll(RegExp(r'^\s+|\s+$'), '')
-    .trim();
+String _normalize(String html) =>
+    html
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'>\s+<'), '><')
+        .replaceAll(RegExp(r'^\s+|\s+$'), '')
+        .trim();
 
 // ---------------------------------------------------------------------------
 // MdNode -> HTML renderer (test-internal, not exported)
 // ---------------------------------------------------------------------------
 
-String mdToHtml(MdDocument doc) =>
-    doc.children.map(_renderNode).join('\n');
+String mdToHtml(MdDocument doc) => doc.children.map(_renderNode).join('\n');
 
 String _renderNode(MdNode node) => switch (node) {
   MdDocument(:final children) => children.map(_renderNode).join('\n'),
@@ -76,10 +78,16 @@ String _renderNode(MdNode node) => switch (node) {
   MdText(:final text) => _escapeHtml(text),
   MdEmphasis(:final children) => '<em>${_renderInline(children)}</em>',
   MdStrong(:final children) => '<strong>${_renderInline(children)}</strong>',
-  MdLink(:final href, :final title, :final children) =>
-    _renderLink(href, title, children),
-  MdImage(:final src, :final alt, :final title) =>
-    _renderImage(src, alt, title),
+  MdLink(:final href, :final title, :final children) => _renderLink(
+    href,
+    title,
+    children,
+  ),
+  MdImage(:final src, :final alt, :final title) => _renderImage(
+    src,
+    alt,
+    title,
+  ),
   MdCode(:final code) => '<code>${_escapeHtml(code)}</code>',
   MdHtmlInline(:final html) => html,
   MdHardBreak() => '<br />\n',
@@ -97,12 +105,14 @@ String _renderList(
   final tag = ordered ? 'ol' : 'ul';
   final startAttr =
       (ordered && start != null && start != 1) ? ' start="$start"' : '';
-  final renderedItems = items.map((item) {
-    if (tight) {
-      return _renderTightListItem(item);
-    }
-    return _renderListItem(item.children);
-  }).join('\n');
+  final renderedItems = items
+      .map((item) {
+        if (tight) {
+          return _renderTightListItem(item);
+        }
+        return _renderListItem(item.children);
+      })
+      .join('\n');
   return '<$tag$startAttr>\n$renderedItems\n</$tag>';
 }
 

@@ -11,12 +11,12 @@ import 'ast/markdown.dart';
 
 /// Parse CommonMark Markdown into an [MdDocument].
 Result<ParseError, MdDocument> parseMarkdown(String input) {
-  final normalized = input.contains('\r')
-      ? input.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
-      : input;
-  final tabExpanded = normalized.contains('\t')
-      ? _expandTabs(normalized)
-      : normalized;
+  final normalized =
+      input.contains('\r')
+          ? input.replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+          : input;
+  final tabExpanded =
+      normalized.contains('\t') ? _expandTabs(normalized) : normalized;
   final withNewline =
       tabExpanded.isEmpty || tabExpanded.endsWith('\n')
           ? tabExpanded
@@ -39,9 +39,8 @@ Result<ParseError, MdDocument> parseMarkdown(String input) {
 }
 
 MdDocument _markdownInner(String input) {
-  final withNewline = input.isEmpty || input.endsWith('\n')
-      ? input
-      : '$input\n';
+  final withNewline =
+      input.isEmpty || input.endsWith('\n') ? input : '$input\n';
   final result = _document.run(withNewline);
   return switch (result) {
     Success(:final value) => MdDocument(value),
@@ -71,36 +70,32 @@ String _expandTabs(String input) {
   return buf.toString();
 }
 
-
-
 final _linkRefs = <String, (String, String?)>{};
 final _paragraphCache = <String, bool>{};
 
-
-
 final Parser<ParseError, String> _newline = char('\n');
 
-final Parser<ParseError, void> _optSpaces =
-    satisfy((c) => c == ' ' || c == '\t', 'space').many.as<void>(null);
+final Parser<ParseError, void> _optSpaces = satisfy(
+  (c) => c == ' ' || c == '\t',
+  'space',
+).many.as<void>(null);
 
-final Parser<ParseError, String> _restOfLine =
-    satisfy((c) => c != '\n', 'non-newline').many.capture.thenSkip(_newline);
+final Parser<ParseError, String> _restOfLine = satisfy(
+  (c) => c != '\n',
+  'non-newline',
+).many.capture.thenSkip(_newline);
 
-final Parser<ParseError, String> _restOfLineOrEof =
-    satisfy((c) => c != '\n', 'non-newline').many.capture.thenSkip(
-      _newline | eof().map((_) => ''),
-    );
+final Parser<ParseError, String> _restOfLineOrEof = satisfy(
+  (c) => c != '\n',
+  'non-newline',
+).many.capture.thenSkip(_newline | eof().map((_) => ''));
 
-
-final Parser<ParseError, void> _blankLine =
-    satisfy((c) => c == ' ' || c == '\t', 'space')
-        .many
-        .thenSkip(_newline)
-        .as<void>(null);
-
+final Parser<ParseError, void> _blankLine = satisfy(
+  (c) => c == ' ' || c == '\t',
+  'space',
+).many.thenSkip(_newline).as<void>(null);
 
 final Parser<ParseError, void> _optBlankLines = _blankLine.many.as<void>(null);
-
 
 final Parser<ParseError, List<MdNode>> _document = _optBlankLines
     .skipThen(_blockElement.many)
@@ -122,24 +117,24 @@ final Parser<ParseError, MdNode> _blockElement = _optBlankLines.skipThen(
 );
 
 /// Skips setext headings — for blockquote/list content with lazy setext lines.
-final Parser<ParseError, MdNode> _blockElementNoSetext = _optBlankLines.skipThen(
-  _htmlBlock |
-      _thematicBreak |
-      _atxHeading |
-      _fencedCodeBlock |
-      _indentedCodeBlock |
-      _linkRefDef |
-      _blockquote |
-      _orderedList |
-      _unorderedList |
-      _paragraph,
-);
+final Parser<ParseError, MdNode> _blockElementNoSetext = _optBlankLines
+    .skipThen(
+      _htmlBlock |
+          _thematicBreak |
+          _atxHeading |
+          _fencedCodeBlock |
+          _indentedCodeBlock |
+          _linkRefDef |
+          _blockquote |
+          _orderedList |
+          _unorderedList |
+          _paragraph,
+    );
 
 final Parser<ParseError, List<MdNode>> _documentNoSetext = _optBlankLines
     .skipThen(_blockElementNoSetext.many)
     .thenSkip(_optBlankLines)
     .thenSkip(eof());
-
 
 final Parser<ParseError, int> _indentGuard = satisfy(
   (c) => c == ' ',
@@ -153,74 +148,74 @@ final Parser<ParseError, int> _indentGuard = satisfy(
   return succeed<ParseError, int>(spaces.length);
 });
 
-
-final Parser<ParseError, MdNode> _thematicBreak =
-    _indentGuard.skipThen(_thematicBreakBody);
+final Parser<ParseError, MdNode> _thematicBreak = _indentGuard.skipThen(
+  _thematicBreakBody,
+);
 
 final Parser<ParseError, MdNode> _thematicBreakBody = satisfy(
   (c) => c == '*' || c == '-' || c == '_',
   'rule char',
 ).flatMap((ch) {
   final ruleChar = satisfy((c) => c == ch || c == ' ' || c == '\t', 'rule');
-  return ruleChar.many.capture.thenSkip(_newline | eof().map((_) => '')).flatMap(
-    (rest) {
-
-      final count = 1 + rest.split('').where((c) => c == ch).length;
-      if (count < 3) {
-        return failure<ParseError, MdNode>(
-          CustomError('thematic break needs 3+ chars', Location.zero),
-        );
-      }
-      return succeed<ParseError, MdNode>(const MdThematicBreak());
-    },
-  );
+  return ruleChar.many.capture
+      .thenSkip(_newline | eof().map((_) => ''))
+      .flatMap((rest) {
+        final count = 1 + rest.split('').where((c) => c == ch).length;
+        if (count < 3) {
+          return failure<ParseError, MdNode>(
+            CustomError('thematic break needs 3+ chars', Location.zero),
+          );
+        }
+        return succeed<ParseError, MdNode>(const MdThematicBreak());
+      });
 });
 
+final Parser<ParseError, MdNode> _atxHeading = _indentGuard.skipThen(
+  _atxHeadingBody,
+);
 
-final Parser<ParseError, MdNode> _atxHeading =
-    _indentGuard.skipThen(_atxHeadingBody);
+final Parser<ParseError, MdNode> _atxHeadingBody = char(
+  '#',
+).many1.capture.flatMap((hashes) {
+  final level = hashes.length;
+  if (level > 6) {
+    return failure<ParseError, MdNode>(
+      CustomError('heading level > 6', Location.zero),
+    );
+  }
+  final withContent = char(' ')
+      .skipThen(_atxContent)
+      .map(
+        (content) => MdHeading(level, _parseInline(content.trim())) as MdNode,
+      );
+  final empty = (_newline | eof().map((_) => '')).map(
+    (_) => MdHeading(level, const []) as MdNode,
+  );
+  return withContent | empty;
+});
 
-final Parser<ParseError, MdNode> _atxHeadingBody = char('#')
-    .many1
-    .capture
-    .flatMap((hashes) {
-      final level = hashes.length;
-      if (level > 6) {
-        return failure<ParseError, MdNode>(
-          CustomError('heading level > 6', Location.zero),
-        );
-      }
-      final withContent = char(' ')
-          .skipThen(_atxContent)
-          .map((content) =>
-            MdHeading(level, _parseInline(content.trim())) as MdNode,
-          );
-      final empty =
-          (_newline | eof().map((_) => ''))
-              .map((_) => MdHeading(level, const []) as MdNode);
-      return withContent | empty;
-    });
+final Parser<ParseError, MdNode> _setextHeading = _setextContent.flatMap(
+  (lines) => _setextUnderline.map((level) {
+    final content = lines.join('\n').trimRight();
+    return MdHeading(level, _parseInline(content));
+  }),
+);
 
-
-final Parser<ParseError, MdNode> _setextHeading = _setextContent
-    .flatMap((lines) => _setextUnderline.map((level) {
-      final content = lines.join('\n').trimRight();
-      return MdHeading(level, _parseInline(content));
-    }));
-
-final Parser<ParseError, String> _atxContent =
-    _restOfLineOrEof.map(_stripClosingHashes);
+final Parser<ParseError, String> _atxContent = _restOfLineOrEof.map(
+  _stripClosingHashes,
+);
 
 final Parser<ParseError, String> _atxClosingStripper = () {
   final trailingSpaces = _optSpaces.thenSkip(eof());
   final allHashes = char('#').many1.skipThen(trailingSpaces).as<String>('');
-  final closingSuffix = satisfy((c) => c == ' ' || c == '\t', 'ws').many1
-      .skipThen(char('#').many1)
-      .skipThen(trailingSpaces);
-  final contentChar = closingSuffix.notFollowedBy
-      .skipThen(satisfy((c) => c != '\n', 'c'));
-  final withClosing = contentChar.many.capture
-      .thenSkip(closingSuffix);
+  final closingSuffix = satisfy(
+    (c) => c == ' ' || c == '\t',
+    'ws',
+  ).many1.skipThen(char('#').many1).skipThen(trailingSpaces);
+  final contentChar = closingSuffix.notFollowedBy.skipThen(
+    satisfy((c) => c != '\n', 'c'),
+  );
+  final withClosing = contentChar.many.capture.thenSkip(closingSuffix);
   final plain = satisfy((c) => c != '\n', 'c').many.capture.thenSkip(eof());
   return allHashes | withClosing | plain;
 }();
@@ -247,17 +242,19 @@ final Parser<ParseError, String> _setextLine = _thematicBreak.notFollowedBy
     .skipThen(_indentGuard.skipThen(_restOfLine));
 
 final Parser<ParseError, int> _setextUnderline = _indentGuard.skipThen(
-  char('=').many1.thenSkip(_optSpaces).thenSkip(
-    _newline | eof().map((_) => ''),
-  ).map((_) => 1) |
-  char('-').many1.thenSkip(_optSpaces).thenSkip(
-    _newline | eof().map((_) => ''),
-  ).map((_) => 2),
+  char('=').many1
+          .thenSkip(_optSpaces)
+          .thenSkip(_newline | eof().map((_) => ''))
+          .map((_) => 1) |
+      char('-').many1
+          .thenSkip(_optSpaces)
+          .thenSkip(_newline | eof().map((_) => ''))
+          .map((_) => 2),
 );
 
-
-final Parser<ParseError, MdNode> _fencedCodeBlock =
-    _indentGuard.flatMap(_fencedCodeBody);
+final Parser<ParseError, MdNode> _fencedCodeBlock = _indentGuard.flatMap(
+  _fencedCodeBody,
+);
 
 Parser<ParseError, MdNode> _fencedCodeBody(int indent) {
   final backtickFence = char('`').manyAtLeast(3).capture;
@@ -268,26 +265,34 @@ Parser<ParseError, MdNode> _fencedCodeBody(int indent) {
     final fenceLen = fence.length;
 
     if (fenceChar == '`') {
-      return satisfy(
-        (c) => c != '\n' && c != '`',
-        'info char',
-      ).many.capture.thenSkip(_newline | eof().map((_) => '')).flatMap((info) =>
-        _fencedCodeContent(fenceChar, fenceLen, indent).map((code) {
-          final lang = _resolveEntities(_resolveBackslashEscapes(info.trim()));
-          final langWord =
-              lang.contains(' ') ? lang.substring(0, lang.indexOf(' ')) : lang;
-          return MdCodeBlock(code,
-              language: langWord.isNotEmpty ? langWord : null);
-        }),
-      );
+      return satisfy((c) => c != '\n' && c != '`', 'info char').many.capture
+          .thenSkip(_newline | eof().map((_) => ''))
+          .flatMap(
+            (info) =>
+                _fencedCodeContent(fenceChar, fenceLen, indent).map((code) {
+                  final lang = _resolveEntities(
+                    _resolveBackslashEscapes(info.trim()),
+                  );
+                  final langWord =
+                      lang.contains(' ')
+                          ? lang.substring(0, lang.indexOf(' '))
+                          : lang;
+                  return MdCodeBlock(
+                    code,
+                    language: langWord.isNotEmpty ? langWord : null,
+                  );
+                }),
+          );
     } else {
-      return _restOfLine.flatMap((info) =>
-        _fencedCodeContent(fenceChar, fenceLen, indent).map((code) {
+      return _restOfLine.flatMap(
+        (info) => _fencedCodeContent(fenceChar, fenceLen, indent).map((code) {
           final lang = _resolveEntities(_resolveBackslashEscapes(info.trim()));
           final langWord =
               lang.contains(' ') ? lang.substring(0, lang.indexOf(' ')) : lang;
-          return MdCodeBlock(code,
-              language: langWord.isNotEmpty ? langWord : null);
+          return MdCodeBlock(
+            code,
+            language: langWord.isNotEmpty ? langWord : null,
+          );
         }),
       );
     }
@@ -313,30 +318,30 @@ Parser<ParseError, String> _fencedCodeContent(
       .skipThen(_stripUpTo(indent))
       .skipThen(_restOfLine);
 
-  return contentLine.many.thenSkip(closingFence | eof().map((_) => '')).map(
-    (lines) => lines.isEmpty ? '' : '${lines.join('\n')}\n',
-  );
+  return contentLine.many
+      .thenSkip(closingFence | eof().map((_) => ''))
+      .map((lines) => lines.isEmpty ? '' : '${lines.join('\n')}\n');
 }
 
+final Parser<ParseError, String> _indentedCodeLine = string(
+  '    ',
+).skipThen(_restOfLine);
 
-final Parser<ParseError, String> _indentedCodeLine = string('    ')
-    .skipThen(_restOfLine);
+final Parser<ParseError, String> _indentedBlankLine = _blankLine.map((_) => '');
 
-final Parser<ParseError, String> _indentedBlankLine = _blankLine
-    .map((_) => '');
+final Parser<ParseError, MdNode> _indentedCodeBlock = _indentedCodeLine.flatMap(
+  (first) => (_indentedCodeLine | _indentedBlankLine).many.map((rest) {
+    final lines = [first, ...rest];
+    final trimmed =
+        lines.reversed.skipWhile((l) => l.isEmpty).toList().reversed.toList();
+    final code = '${trimmed.join('\n')}\n';
+    return MdCodeBlock(code);
+  }),
+);
 
-final Parser<ParseError, MdNode> _indentedCodeBlock = _indentedCodeLine
-    .flatMap((first) => (_indentedCodeLine | _indentedBlankLine).many.map((rest) {
-        final lines = [first, ...rest];
-        final trimmed = lines.reversed
-            .skipWhile((l) => l.isEmpty).toList().reversed.toList();
-        final code = '${trimmed.join('\n')}\n';
-        return MdCodeBlock(code);
-      }));
-
-
-final Parser<ParseError, MdNode> _htmlBlock =
-    _indentGuard.skipThen(_htmlBlockBody);
+final Parser<ParseError, MdNode> _htmlBlock = _indentGuard.skipThen(
+  _htmlBlockBody,
+);
 
 final Parser<ParseError, MdNode> _htmlBlockBody =
     _htmlBlock1 |
@@ -348,17 +353,45 @@ final Parser<ParseError, MdNode> _htmlBlockBody =
     _htmlBlock7;
 
 final Parser<ParseError, MdNode> _htmlBlock1 = _htmlBlockTypeParsed(
-  char('<').skipThen(
-    stringIn(['pre', 'script', 'style', 'textarea', 'PRE', 'SCRIPT',
-        'STYLE', 'TEXTAREA', 'Pre', 'Script', 'Style', 'Textarea']),
-  ).thenSkip(
-    satisfy((c) => c == ' ' || c == '\t' || c == '>' || c == '\n', 'end') |
-    eof().map((_) => ''),
-  ),
-  string('</').skipThen(
-    stringIn(['pre', 'script', 'style', 'textarea', 'PRE', 'SCRIPT',
-        'STYLE', 'TEXTAREA', 'Pre', 'Script', 'Style', 'Textarea']),
-  ).thenSkip(char('>')),
+  char('<')
+      .skipThen(
+        stringIn([
+          'pre',
+          'script',
+          'style',
+          'textarea',
+          'PRE',
+          'SCRIPT',
+          'STYLE',
+          'TEXTAREA',
+          'Pre',
+          'Script',
+          'Style',
+          'Textarea',
+        ]),
+      )
+      .thenSkip(
+        satisfy((c) => c == ' ' || c == '\t' || c == '>' || c == '\n', 'end') |
+            eof().map((_) => ''),
+      ),
+  string('</')
+      .skipThen(
+        stringIn([
+          'pre',
+          'script',
+          'style',
+          'textarea',
+          'PRE',
+          'SCRIPT',
+          'STYLE',
+          'TEXTAREA',
+          'Pre',
+          'Script',
+          'Style',
+          'Textarea',
+        ]),
+      )
+      .thenSkip(char('>')),
 );
 
 final Parser<ParseError, MdNode> _htmlBlock2 = _htmlBlockTypeParsed(
@@ -372,8 +405,9 @@ final Parser<ParseError, MdNode> _htmlBlock3 = _htmlBlockTypeParsed(
 );
 
 final Parser<ParseError, MdNode> _htmlBlock4 = _htmlBlockTypeParsed(
-  string('<!').skipThen(satisfy(
-    (c) => c.compareTo('A') >= 0 && c.compareTo('Z') <= 0, 'upper')),
+  string('<!').skipThen(
+    satisfy((c) => c.compareTo('A') >= 0 && c.compareTo('Z') <= 0, 'upper'),
+  ),
   char('>'),
 );
 
@@ -389,133 +423,216 @@ final Parser<ParseError, MdNode> _htmlBlock7 = _htmlBlock6Or7(false);
 Parser<ParseError, MdNode> _htmlBlockTypeParsed(
   Parser<ParseError, Object?> start,
   Parser<ParseError, Object?> end,
-) =>
-  _restOfLine.flatMap((firstLine) {
-    if (start.run(firstLine) is Failure) {
-      return failure<ParseError, MdNode>(
-        CustomError('not html block', Location.zero),
-      );
-    }
-    if (_lineContains(end, firstLine)) {
-      return succeed<ParseError, MdNode>(MdHtmlBlock('$firstLine\n'));
-    }
-    return _htmlBlockLinesParsed(end).map((rest) =>
-      MdHtmlBlock('$firstLine\n${rest.join('\n')}\n'),
+) => _restOfLine.flatMap((firstLine) {
+  if (start.run(firstLine) is Failure) {
+    return failure<ParseError, MdNode>(
+      CustomError('not html block', Location.zero),
     );
-  });
+  }
+  if (_lineContains(end, firstLine)) {
+    return succeed<ParseError, MdNode>(MdHtmlBlock('$firstLine\n'));
+  }
+  return _htmlBlockLinesParsed(
+    end,
+  ).map((rest) => MdHtmlBlock('$firstLine\n${rest.join('\n')}\n'));
+});
 
 bool _lineContains(Parser<ParseError, Object?> pattern, String line) {
-  final findPattern =
-      (pattern.notFollowedBy.skipThen(anyChar())).many
-      .skipThen(pattern);
+  final findPattern = (pattern.notFollowedBy.skipThen(
+    anyChar(),
+  )).many.skipThen(pattern);
   return findPattern.run(line) is! Failure;
 }
 
 Parser<ParseError, List<String>> _htmlBlockLinesParsed(
   Parser<ParseError, Object?> end,
 ) {
-  final nonEndLine = _restOfLine.flatMap((line) => _lineContains(end, line)
-      ? failure<ParseError, String>(CustomError('end', Location.zero))
-      : succeed<ParseError, String>(line));
-  final endLine = _restOfLine.flatMap((line) => _lineContains(end, line)
-      ? succeed<ParseError, String>(line)
-      : failure<ParseError, String>(CustomError('not end', Location.zero)));
-  return nonEndLine.many.flatMap((before) =>
-    endLine.map((last) => [...before, last]) |
-    succeed<ParseError, List<String>>(before),
+  final nonEndLine = _restOfLine.flatMap(
+    (line) =>
+        _lineContains(end, line)
+            ? failure<ParseError, String>(CustomError('end', Location.zero))
+            : succeed<ParseError, String>(line),
+  );
+  final endLine = _restOfLine.flatMap(
+    (line) =>
+        _lineContains(end, line)
+            ? succeed<ParseError, String>(line)
+            : failure<ParseError, String>(
+              CustomError('not end', Location.zero),
+            ),
+  );
+  return nonEndLine.many.flatMap(
+    (before) =>
+        endLine.map((last) => [...before, last]) |
+        succeed<ParseError, List<String>>(before),
   );
 }
 
 const _blockTags = {
-  'address', 'article', 'aside', 'base', 'basefont', 'blockquote', 'body',
-  'caption', 'center', 'col', 'colgroup', 'dd', 'details', 'dialog', 'dir',
-  'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form',
-  'frame', 'frameset', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header',
-  'hr', 'html', 'iframe', 'legend', 'li', 'link', 'main', 'menu', 'menuitem',
-  'nav', 'noframes', 'ol', 'optgroup', 'option', 'p', 'param', 'search',
-  'section', 'summary', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead',
-  'title', 'tr', 'track', 'ul',
+  'address',
+  'article',
+  'aside',
+  'base',
+  'basefont',
+  'blockquote',
+  'body',
+  'caption',
+  'center',
+  'col',
+  'colgroup',
+  'dd',
+  'details',
+  'dialog',
+  'dir',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'frame',
+  'frameset',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'head',
+  'header',
+  'hr',
+  'html',
+  'iframe',
+  'legend',
+  'li',
+  'link',
+  'main',
+  'menu',
+  'menuitem',
+  'nav',
+  'noframes',
+  'ol',
+  'optgroup',
+  'option',
+  'p',
+  'param',
+  'search',
+  'section',
+  'summary',
+  'table',
+  'tbody',
+  'td',
+  'tfoot',
+  'th',
+  'thead',
+  'title',
+  'tr',
+  'track',
+  'ul',
 };
 
 Parser<ParseError, MdNode> _htmlBlock6Or7(bool isType6) =>
-  _restOfLine.flatMap((firstLine) {
-    final trimmed = firstLine.trimLeft();
-    final startParser = isType6 ? _htmlBlock6Start : _htmlBlock7Start;
-    if (startParser.run(trimmed) is Failure) {
-      return failure<ParseError, MdNode>(
-        CustomError('not html block 6/7', Location.zero),
-      );
-    }
-    return _nonBlankLine.many.map((rest) {
-      final lines = [firstLine, ...rest];
-      return MdHtmlBlock('${lines.join('\n')}\n') as MdNode;
+    _restOfLine.flatMap((firstLine) {
+      final trimmed = firstLine.trimLeft();
+      final startParser = isType6 ? _htmlBlock6Start : _htmlBlock7Start;
+      if (startParser.run(trimmed) is Failure) {
+        return failure<ParseError, MdNode>(
+          CustomError('not html block 6/7', Location.zero),
+        );
+      }
+      return _nonBlankLine.many.map((rest) {
+        final lines = [firstLine, ...rest];
+        return MdHtmlBlock('${lines.join('\n')}\n') as MdNode;
+      });
     });
-  });
 
 final Parser<ParseError, String> _tagNameParser = satisfy(
-  (c) => (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+  (c) =>
+      (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
       (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0),
   'alpha',
-).flatMap((first) => satisfy(
-      (c) => (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-          (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-          (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
-          c == '-',
-      'tag char',
-    ).many.capture.map((rest) => '$first$rest'));
+).flatMap(
+  (first) => satisfy(
+    (c) =>
+        (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+        (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+        (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
+        c == '-',
+    'tag char',
+  ).many.capture.map((rest) => '$first$rest'),
+);
 
-final Parser<ParseError, void> _htmlBlock6Start = (
-  char('<').skipThen(char('/').optional).skipThen(_tagNameParser)
-).flatMap((tag) {
+final Parser<ParseError, void> _htmlBlock6Start = (char(
+  '<',
+).skipThen(char('/').optional).skipThen(_tagNameParser)).flatMap((tag) {
   if (!_blockTags.contains(tag.toLowerCase())) {
     return failure<ParseError, void>(
       CustomError('not block tag', Location.zero),
     );
   }
   return (satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws') |
-      char('>') |
-      string('/>').map((_) => ''))
-      .as<void>(null) |
+              char('>') |
+              string('/>').map((_) => ''))
+          .as<void>(null) |
       eof();
 });
 
 final Parser<ParseError, void> _htmlBlock7Start = () {
   final attrName = satisfy(
-    (c) => (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+    (c) =>
+        (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
         (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-        c == '_' || c == ':',
+        c == '_' ||
+        c == ':',
     'attr start',
-  ).skipThen(satisfy(
-    (c) => (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-        (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-        (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
-        c == '_' || c == ':' || c == '.' || c == '-',
-    'attr char',
-  ).many);
-  final unquoted = satisfy(
-    (c) => c != ' ' && c != '\t' && c != '\n' && c != '"' && c != "'" &&
-        c != '=' && c != '<' && c != '>' && c != '`',
-    'unquoted',
-  ).many1;
-  final singleQuoted = char("'").skipThen(
-    satisfy((c) => c != "'", 'sq char').many,
-  ).thenSkip(char("'"));
-  final doubleQuoted = char('"').skipThen(
-    satisfy((c) => c != '"', 'dq char').many,
-  ).thenSkip(char('"'));
+  ).skipThen(
+    satisfy(
+      (c) =>
+          (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+          (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+          (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
+          c == '_' ||
+          c == ':' ||
+          c == '.' ||
+          c == '-',
+      'attr char',
+    ).many,
+  );
+  final unquoted =
+      satisfy(
+        (c) =>
+            c != ' ' &&
+            c != '\t' &&
+            c != '\n' &&
+            c != '"' &&
+            c != "'" &&
+            c != '=' &&
+            c != '<' &&
+            c != '>' &&
+            c != '`',
+        'unquoted',
+      ).many1;
+  final singleQuoted = char(
+    "'",
+  ).skipThen(satisfy((c) => c != "'", 'sq char').many).thenSkip(char("'"));
+  final doubleQuoted = char(
+    '"',
+  ).skipThen(satisfy((c) => c != '"', 'dq char').many).thenSkip(char('"'));
   final attrValue = unquoted | singleQuoted | doubleQuoted;
   final attribute = satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws')
       .many1
       .skipThen(attrName)
       .skipThen(
-        (_optSpaces.skipThen(char('=')).skipThen(_optSpaces).skipThen(attrValue))
-            .optional,
+        (_optSpaces
+            .skipThen(char('='))
+            .skipThen(_optSpaces)
+            .skipThen(attrValue)).optional,
       );
   final openTag = char('<').skipThen(_tagNameParser).flatMap((tag) {
     if (_blockTags.contains(tag.toLowerCase())) {
-      return failure<ParseError, void>(
-        CustomError('block tag', Location.zero),
-      );
+      return failure<ParseError, void>(CustomError('block tag', Location.zero));
     }
     return attribute.many
         .skipThen(_optSpaces)
@@ -525,9 +642,7 @@ final Parser<ParseError, void> _htmlBlock7Start = () {
   });
   final closeTag = string('</').skipThen(_tagNameParser).flatMap((tag) {
     if (_blockTags.contains(tag.toLowerCase())) {
-      return failure<ParseError, void>(
-        CustomError('block tag', Location.zero),
-      );
+      return failure<ParseError, void>(CustomError('block tag', Location.zero));
     }
     return _optSpaces.skipThen(char('>')).skipThen(_optSpaces).thenSkip(eof());
   });
@@ -536,7 +651,6 @@ final Parser<ParseError, void> _htmlBlock7Start = () {
 
 final Parser<ParseError, String> _nonBlankLine = _blankLine.notFollowedBy
     .skipThen(_restOfLine);
-
 
 final Parser<ParseError, void> _lazyGuardBase = _blankLine.notFollowedBy
     .skipThen(_blockquoteLine.notFollowedBy)
@@ -550,13 +664,13 @@ final Parser<ParseError, String> _lazyCandidateLine = _lazyGuardBase
     .skipThen(_olStartingWith1.notFollowedBy)
     .skipThen(_restOfLine);
 
-final Parser<ParseError, MdNode> _blockquote = _blockquoteLine.many1
-    .flatMap((lines) => _bqContinue(lines.join('\n'), false));
+final Parser<ParseError, MdNode> _blockquote = _blockquoteLine.many1.flatMap(
+  (lines) => _bqContinue(lines.join('\n'), false),
+);
 
-Parser<ParseError, MdNode> _bqContinue(String content,
-    bool hasLazySetext) {
-  final tryBqLine = _blockquoteLine.flatMap((line) =>
-    _bqContinue('$content\n$line', hasLazySetext),
+Parser<ParseError, MdNode> _bqContinue(String content, bool hasLazySetext) {
+  final tryBqLine = _blockquoteLine.flatMap(
+    (line) => _bqContinue('$content\n$line', hasLazySetext),
   );
   // Track if this lazy line is a setext underline (spec: setext
   // heading underline cannot be a lazy continuation line).
@@ -570,9 +684,10 @@ Parser<ParseError, MdNode> _bqContinue(String content,
     );
   });
   final done = succeed<ParseError, void>(null).map((_) {
-    final inner = hasLazySetext
-        ? _markdownInnerNoSetext(content)
-        : _markdownInner(content);
+    final inner =
+        hasLazySetext
+            ? _markdownInnerNoSetext(content)
+            : _markdownInner(content);
     return MdBlockquote(inner.children) as MdNode;
   });
   return tryBqLine | tryLazy | done;
@@ -580,7 +695,8 @@ Parser<ParseError, MdNode> _bqContinue(String content,
 
 bool _innerEndsWithParagraph(String content) {
   final lastNewline = content.lastIndexOf('\n');
-  final lastLine = lastNewline < 0 ? content : content.substring(lastNewline + 1);
+  final lastLine =
+      lastNewline < 0 ? content : content.substring(lastNewline + 1);
   if (lastLine.trim().isEmpty) return false;
   final cached = _paragraphCache[content];
   if (cached != null) return cached;
@@ -597,12 +713,13 @@ bool _innerEndsWithParagraph(String content) {
 
 bool _endsWithParagraph(MdNode node) => switch (node) {
   MdParagraph() => true,
-  MdBlockquote(:final children) when children.isNotEmpty =>
-    _endsWithParagraph(children.last),
-  MdList(:final items) when items.isNotEmpty =>
-    _endsWithParagraph(items.last),
-  MdListItem(:final children) when children.isNotEmpty =>
-    _endsWithParagraph(children.last),
+  MdBlockquote(:final children) when children.isNotEmpty => _endsWithParagraph(
+    children.last,
+  ),
+  MdList(:final items) when items.isNotEmpty => _endsWithParagraph(items.last),
+  MdListItem(:final children) when children.isNotEmpty => _endsWithParagraph(
+    children.last,
+  ),
   _ => false,
 };
 
@@ -612,9 +729,8 @@ bool _isSetextUnderline(String line) {
 }
 
 MdDocument _markdownInnerNoSetext(String input) {
-  final withNewline = input.isEmpty || input.endsWith('\n')
-      ? input
-      : '$input\n';
+  final withNewline =
+      input.isEmpty || input.endsWith('\n') ? input : '$input\n';
   final result = _documentNoSetext.run(withNewline);
   return switch (result) {
     Success(:final value) => MdDocument(value),
@@ -625,81 +741,86 @@ MdDocument _markdownInnerNoSetext(String input) {
 
 final Parser<ParseError, String> _blockquoteLine = _indentGuard.skipThen(
   char('>').skipThen(
-    char(' ').optional.skipThen(_restOfLine) |
-    _newline.map((_) => ''),
+    char(' ').optional.skipThen(_restOfLine) | _newline.map((_) => ''),
   ),
 );
 
-
-final Parser<ParseError, MdNode> _unorderedList = _ulListItemWithMarker
-    .flatMap((first) {
-      final marker = first.$1;
-      final nextItem = _blankLine.many1.as(true).optional.flatMap((hadBlanks) =>
-        _ulListItemForMarker(marker).map((content) =>
-          (hadBlanks ?? false, content),
-        ),
-      );
-      return nextItem.many.map((rest) {
-        final contents = [first.$2, ...rest.map((r) => r.$2)];
-        final hasBlankBetween = rest.any((r) => r.$1);
-        final loose = hasBlankBetween ||
-            contents.any(_hasDirectBlankLine);
-        final tight = !loose;
-        return MdList(
-          ordered: false,
-          tight: tight,
-          items: contents
-              .map(
-                (content) => MdListItem(
-                  _parseListItemContent(content, tight),
-                ),
-              )
-              .toList(),
-        ) as MdNode;
-      });
+final Parser<ParseError, MdNode> _unorderedList = _ulListItemWithMarker.flatMap(
+  (first) {
+    final marker = first.$1;
+    final nextItem = _blankLine.many1
+        .as(true)
+        .optional
+        .flatMap(
+          (hadBlanks) => _ulListItemForMarker(
+            marker,
+          ).map((content) => (hadBlanks ?? false, content)),
+        );
+    return nextItem.many.map((rest) {
+      final contents = [first.$2, ...rest.map((r) => r.$2)];
+      final hasBlankBetween = rest.any((r) => r.$1);
+      final loose = hasBlankBetween || contents.any(_hasDirectBlankLine);
+      final tight = !loose;
+      return MdList(
+            ordered: false,
+            tight: tight,
+            items:
+                contents
+                    .map(
+                      (content) =>
+                          MdListItem(_parseListItemContent(content, tight)),
+                    )
+                    .toList(),
+          )
+          as MdNode;
     });
+  },
+);
 
 Parser<ParseError, String> _ulListItemForMarker(String marker) =>
-  _thematicBreak.notFollowedBy.skipThen(
-    _indentGuard.flatMap((indent) =>
-      char(marker).skipThen(_ulMarkerAfter(indent))),
-  );
+    _thematicBreak.notFollowedBy.skipThen(
+      _indentGuard.flatMap(
+        (indent) => char(marker).skipThen(_ulMarkerAfter(indent)),
+      ),
+    );
 
 final Parser<ParseError, (String, String)> _ulListItemWithMarker =
-  _thematicBreak.notFollowedBy.skipThen(
-    _indentGuard.flatMap((indent) => satisfy(
-      (c) => c == '-' || c == '+' || c == '*',
-      'list marker',
-    ).flatMap((marker) =>
-      _ulMarkerAfter(indent).map((content) => (marker, content)),
-    )),
-  );
+    _thematicBreak.notFollowedBy.skipThen(
+      _indentGuard.flatMap(
+        (indent) => satisfy(
+          (c) => c == '-' || c == '+' || c == '*',
+          'list marker',
+        ).flatMap(
+          (marker) =>
+              _ulMarkerAfter(indent).map((content) => (marker, content)),
+        ),
+      ),
+    );
 
 Parser<ParseError, String> _ulMarkerAfter(int indent) =>
-  satisfy((c) => c == ' ', 'space')
-      .many1
-      .capture
-      .flatMap((spaces) => _restOfLine.flatMap((first) {
-    final spacesAfter =
-        (first.trim().isEmpty || spaces.length > 4) ? 1 : spaces.length;
-    final contentIndent = indent + 1 + spacesAfter;
-    final prefix = spaces.length > 4 ? ' ' * (spaces.length - 1) : '';
-    return _listItemContWithLazy(contentIndent, '$prefix$first');
-  })) |
-  _newline.skipThen(
-    _blankLine.notFollowedBy.skipThen(
-      string(' ' * (indent + 2)).skipThen(_restOfLine),
-    ).many.map((lines) => lines.join('\n')),
-  );
+    satisfy((c) => c == ' ', 'space').many1.capture.flatMap(
+      (spaces) => _restOfLine.flatMap((first) {
+        final spacesAfter =
+            (first.trim().isEmpty || spaces.length > 4) ? 1 : spaces.length;
+        final contentIndent = indent + 1 + spacesAfter;
+        final prefix = spaces.length > 4 ? ' ' * (spaces.length - 1) : '';
+        return _listItemContWithLazy(contentIndent, '$prefix$first');
+      }),
+    ) |
+    _newline.skipThen(
+      _blankLine.notFollowedBy
+          .skipThen(string(' ' * (indent + 2)).skipThen(_restOfLine))
+          .many
+          .map((lines) => lines.join('\n')),
+    );
 
 Parser<ParseError, String> _listItemContWithLazy(
   int contentIndent,
   String firstLine,
 ) => _listItemContinuation(contentIndent).flatMap((rest) {
-      final content =
-          rest.isEmpty ? firstLine : '$firstLine\n${rest.join('\n')}';
-      return _extendWithLazyThenCont(content, contentIndent);
-    });
+  final content = rest.isEmpty ? firstLine : '$firstLine\n${rest.join('\n')}';
+  return _extendWithLazyThenCont(content, contentIndent);
+});
 
 Parser<ParseError, String> _extendWithLazyThenCont(
   String content,
@@ -709,13 +830,14 @@ Parser<ParseError, String> _extendWithLazyThenCont(
     return succeed<ParseError, String>(content);
   }
   return _listLazyCandidateLine.flatMap((line) {
-    final extended = '$content\n$line';
-    return _listItemContinuation(contentIndent).flatMap((more) {
-      final full =
-          more.isEmpty ? extended : '$extended\n${more.join('\n')}';
-      return _extendWithLazyThenCont(full, contentIndent);
-    });
-  }) | succeed<ParseError, String>(content);
+        final extended = '$content\n$line';
+        return _listItemContinuation(contentIndent).flatMap((more) {
+          final full =
+              more.isEmpty ? extended : '$extended\n${more.join('\n')}';
+          return _extendWithLazyThenCont(full, contentIndent);
+        });
+      }) |
+      succeed<ParseError, String>(content);
 }
 
 /// A lazy continuation candidate for list items: same as blockquote lazy
@@ -726,90 +848,89 @@ final Parser<ParseError, String> _listLazyCandidateLine = _lazyGuardBase
     .skipThen(_olListItemWithDelim.notFollowedBy)
     .skipThen(_restOfLine);
 
-
-final Parser<ParseError, MdNode> _orderedList = _olListItemWithDelim
-    .flatMap((first) {
-      final delim = first.$1;
-      final nextItem = _blankLine.many1.as(true).optional.flatMap((hadBlanks) =>
-        _olListItemForDelim(delim).map((item) =>
-          (hadBlanks ?? false, item),
-        ),
+final Parser<ParseError, MdNode> _orderedList = _olListItemWithDelim.flatMap((
+  first,
+) {
+  final delim = first.$1;
+  final nextItem = _blankLine.many1
+      .as(true)
+      .optional
+      .flatMap(
+        (hadBlanks) => _olListItemForDelim(
+          delim,
+        ).map((item) => (hadBlanks ?? false, item)),
       );
-      return nextItem.many.map((rest) {
-        final allItems = [
-          (first.$2, first.$3),
-          ...rest.map((r) => r.$2),
-        ];
-        final contents = allItems.map((i) => i.$2).toList();
-        final hasBlankBetween = rest.any((r) => r.$1);
-        final loose = hasBlankBetween ||
-            contents.any(_hasDirectBlankLine);
-        final tight = !loose;
-        final start = allItems.first.$1;
-        return MdList(
+  return nextItem.many.map((rest) {
+    final allItems = [(first.$2, first.$3), ...rest.map((r) => r.$2)];
+    final contents = allItems.map((i) => i.$2).toList();
+    final hasBlankBetween = rest.any((r) => r.$1);
+    final loose = hasBlankBetween || contents.any(_hasDirectBlankLine);
+    final tight = !loose;
+    final start = allItems.first.$1;
+    return MdList(
           ordered: true,
           start: start != 1 ? start : null,
           tight: tight,
-          items: allItems
-              .map(
-                (item) => MdListItem(
-                  _parseListItemContent(item.$2, tight),
-                ),
-              )
-              .toList(),
-        ) as MdNode;
-      });
-    });
+          items:
+              allItems
+                  .map(
+                    (item) => MdListItem(_parseListItemContent(item.$2, tight)),
+                  )
+                  .toList(),
+        )
+        as MdNode;
+  });
+});
 
 final Parser<ParseError, (String, int, String)> _olListItemWithDelim =
     _indentGuard.flatMap(_olMarkerLineWithDelim);
 
 Parser<ParseError, String> _olItemContent(int indent, int markerLen) =>
-    (satisfy((c) => c == ' ', 'space')
-        .many1
-        .capture
-        .flatMap((spaces) => _restOfLine.flatMap((first) {
-              final spacesAfter =
-                  (first.trim().isEmpty || spaces.length > 4)
-                      ? 1
-                      : spaces.length;
-              final contentIndent = indent + markerLen + spacesAfter;
-              final prefix =
-                  spaces.length > 4 ? ' ' * (spaces.length - 1) : '';
-              return _listItemContWithLazy(contentIndent, '$prefix$first');
-            }))) |
+    (satisfy((c) => c == ' ', 'space').many1.capture.flatMap(
+      (spaces) => _restOfLine.flatMap((first) {
+        final spacesAfter =
+            (first.trim().isEmpty || spaces.length > 4) ? 1 : spaces.length;
+        final contentIndent = indent + markerLen + spacesAfter;
+        final prefix = spaces.length > 4 ? ' ' * (spaces.length - 1) : '';
+        return _listItemContWithLazy(contentIndent, '$prefix$first');
+      }),
+    )) |
     _newline.skipThen(
-      _listItemContinuation(indent + markerLen + 1)
-          .map((lines) => lines.join('\n')),
+      _listItemContinuation(
+        indent + markerLen + 1,
+      ).map((lines) => lines.join('\n')),
     );
 
 Parser<ParseError, (String, int, String)> _olMarkerLineWithDelim(int indent) =>
-  digit().many1.capture.flatMap((digits) {
-    if (digits.length > 9) {
-      return failure<ParseError, (String, int, String)>(
-        CustomError('too many digits', Location.zero),
-      );
-    }
-    final num = int.parse(digits);
-    final markerLen = digits.length + 1;
-    return satisfy((c) => c == '.' || c == ')', 'list delimiter')
-        .flatMap((delim) => _olItemContent(indent, markerLen)
-            .map((c) => (delim, num, c)));
-  });
-
-Parser<ParseError, (int, String)> _olListItemForDelim(String delim) =>
-    _indentGuard.flatMap((indent) => digit().many1.capture.flatMap((digits) {
+    digit().many1.capture.flatMap((digits) {
       if (digits.length > 9) {
-        return failure<ParseError, (int, String)>(
+        return failure<ParseError, (String, int, String)>(
           CustomError('too many digits', Location.zero),
         );
       }
       final num = int.parse(digits);
       final markerLen = digits.length + 1;
-      return char(delim).skipThen(
-        _olItemContent(indent, markerLen).map((c) => (num, c)),
+      return satisfy((c) => c == '.' || c == ')', 'list delimiter').flatMap(
+        (delim) =>
+            _olItemContent(indent, markerLen).map((c) => (delim, num, c)),
       );
-    }));
+    });
+
+Parser<ParseError, (int, String)> _olListItemForDelim(String delim) =>
+    _indentGuard.flatMap(
+      (indent) => digit().many1.capture.flatMap((digits) {
+        if (digits.length > 9) {
+          return failure<ParseError, (int, String)>(
+            CustomError('too many digits', Location.zero),
+          );
+        }
+        final num = int.parse(digits);
+        final markerLen = digits.length + 1;
+        return char(
+          delim,
+        ).skipThen(_olItemContent(indent, markerLen).map((c) => (num, c)));
+      }),
+    );
 
 Parser<ParseError, List<String>> _listItemContinuation(int indent) {
   final indentStr = ' ' * indent;
@@ -840,8 +961,7 @@ List<MdNode> _parseListItemContent(String content, bool tight) {
         }
       } else {
         result.add(child);
-        if (i + 1 < children.length &&
-            children[i + 1] is MdParagraph) {
+        if (i + 1 < children.length && children[i + 1] is MdParagraph) {
           result.add(const MdSoftBreak());
         }
       }
@@ -878,8 +998,7 @@ bool _hasDirectBlankLine(String content) {
 
     if (!isBlank) {
       final fenceResult = _fenceOpenLine.run('$line\n');
-      if (fenceResult case Success(:final value) ||
-          Partial(:final value)) {
+      if (fenceResult case Success(:final value) || Partial(:final value)) {
         if (prevBlank && seenNonBlank) return true;
         fenceChar = value.$1;
         fenceLen = value.$2;
@@ -944,8 +1063,8 @@ final Parser<ParseError, (String, int)> _fenceOpenLine = _indentGuard.skipThen(
   () {
     final backtick = char('`').manyAtLeast(3).capture;
     final tilde = char('~').manyAtLeast(3).capture;
-    return (backtick | tilde).flatMap((fence) =>
-      _restOfLine.map((_) => (fence[0], fence.length)),
+    return (backtick | tilde).flatMap(
+      (fence) => _restOfLine.map((_) => (fence[0], fence.length)),
     );
   }(),
 );
@@ -956,53 +1075,57 @@ Parser<ParseError, void> _fenceCloseLine(String fenceChar, int fenceLen) =>
         .thenSkip(_optSpaces)
         .thenSkip(_newline | eof().map((_) => ''));
 
-
-final Parser<ParseError, MdNode> _linkRefDef =
-    _indentGuard.skipThen(_linkRefDefBody);
+final Parser<ParseError, MdNode> _linkRefDef = _indentGuard.skipThen(
+  _linkRefDefBody,
+);
 
 final Parser<ParseError, MdNode> _linkRefDefBody = () {
   final labelChar =
-      (char('\\').skipThen(satisfy(
-        (c) => _asciiPunctuation.contains(c),
-        'escaped',
-      )).map((c) => '\\$c')) |
+      (char('\\')
+          .skipThen(satisfy((c) => _asciiPunctuation.contains(c), 'escaped'))
+          .map((c) => '\\$c')) |
       satisfy((c) => c != ']' && c != '[' && c != '\\', 'label char');
   final label = char('[')
       .skipThen(labelChar.many1.capture)
       .thenSkip(string(']:'))
-      .flatMap((text) => text.trim().isEmpty
-          ? failure<ParseError, String>(
-              CustomError('blank label', Location.zero))
-          : succeed<ParseError, String>(text));
+      .flatMap(
+        (text) =>
+            text.trim().isEmpty
+                ? failure<ParseError, String>(
+                  CustomError('blank label', Location.zero),
+                )
+                : succeed<ParseError, String>(text),
+      );
 
-  final linkWs = satisfy(
-    (c) => c == ' ' || c == '\t',
-    'ws',
-  ).many.skipThen(
-    (_newline.skipThen(
-      satisfy((c) => c == ' ' || c == '\t', 'ws').many,
-    )).optional,
-  ).as<void>(null);
+  final linkWs = satisfy((c) => c == ' ' || c == '\t', 'ws').many
+      .skipThen(
+        (_newline.skipThen(
+          satisfy((c) => c == ' ' || c == '\t', 'ws').many,
+        )).optional,
+      )
+      .as<void>(null);
 
   final angleDest = char('<')
       .skipThen(
         (char('\\').skipThen(anyChar()) |
-            satisfy((c) => c != '>' && c != '\n' && c != '\\', 'dest char'))
+                satisfy((c) => c != '>' && c != '\n' && c != '\\', 'dest char'))
             .many
             .capture,
       )
       .thenSkip(char('>'));
-  final bareDest = satisfy(
-    (c) => c != ' ' && c != '\n' && c != '\t',
-    'dest char',
-  ).many1.capture;
+  final bareDest =
+      satisfy(
+        (c) => c != ' ' && c != '\n' && c != '\t',
+        'dest char',
+      ).many1.capture;
   final dest = angleDest | bareDest;
 
   final titleOnLine = satisfy(
     (c) => c == ' ' || c == '\t',
     'ws',
   ).many1.skipThen(_linkTitle);
-  final titleNextLine = _optSpaces.skipThen(_newline)
+  final titleNextLine = _optSpaces
+      .skipThen(_newline)
       .skipThen(satisfy((c) => c == ' ' || c == '\t', 'ws').many)
       .skipThen(_linkTitle);
   final withTitle = (titleOnLine | titleNextLine)
@@ -1013,20 +1136,23 @@ final Parser<ParseError, MdNode> _linkRefDefBody = () {
       .skipThen(_newline | eof().map((_) => ''))
       .as<String?>(null);
 
-  return label.flatMap((labelText) => linkWs.skipThen(dest).flatMap(
-        (destText) => (withTitle | withoutTitle).map((t) {
-          final normalized =
-              _collapseWhitespace(_caseFold(labelText)).trim();
-          _linkRefs.putIfAbsent(
-            normalized,
-            () => (
-              _processUrl(destText),
-              t != null ? _processTitle(t) : null,
-            ),
-          );
-          return const MdDocument([]) as MdNode;
-        }),
-      ));
+  return label.flatMap(
+    (labelText) => linkWs
+        .skipThen(dest)
+        .flatMap(
+          (destText) => (withTitle | withoutTitle).map((t) {
+            final normalized = _collapseWhitespace(_caseFold(labelText)).trim();
+            _linkRefs.putIfAbsent(
+              normalized,
+              () => (
+                _processUrl(destText),
+                t != null ? _processTitle(t) : null,
+              ),
+            );
+            return const MdDocument([]) as MdNode;
+          }),
+        ),
+  );
 }();
 
 final Parser<ParseError, String> _linkTitle = () {
@@ -1036,10 +1162,9 @@ final Parser<ParseError, String> _linkTitle = () {
     final plain = blankLineGuard.skipThen(
       satisfy((c) => c != q && c != '\\', 'title char'),
     );
-    return char(q)
-        .skipThen((escaped | plain).many.capture)
-        .thenSkip(char(q));
+    return char(q).skipThen((escaped | plain).many.capture).thenSkip(char(q));
   }
+
   final parenEscaped = char('\\').skipThen(anyChar());
   final parenBlankGuard = string('\n\n').notFollowedBy;
   final parenPlain = parenBlankGuard.skipThen(
@@ -1047,19 +1172,20 @@ final Parser<ParseError, String> _linkTitle = () {
   );
   return quoted('"') |
       quoted("'") |
-      char('(')
-          .skipThen((parenEscaped | parenPlain).many.capture)
-          .thenSkip(char(')'));
+      char(
+        '(',
+      ).skipThen((parenEscaped | parenPlain).many.capture).thenSkip(char(')'));
 }();
 
-
-final Parser<ParseError, MdNode> _paragraph = _paragraphFirstLine
-    .flatMap((first) => _paragraphContLine.many.map((rest) {
-          final content = rest.isEmpty
-              ? first.trimRight()
-              : '$first\n${rest.join('\n')}'.trimRight();
-          return MdParagraph(_parseInline(content)) as MdNode;
-        }));
+final Parser<ParseError, MdNode> _paragraph = _paragraphFirstLine.flatMap(
+  (first) => _paragraphContLine.many.map((rest) {
+    final content =
+        rest.isEmpty
+            ? first.trimRight()
+            : '$first\n${rest.join('\n')}'.trimRight();
+    return MdParagraph(_parseInline(content)) as MdNode;
+  }),
+);
 
 final Parser<ParseError, String> _paragraphFirstLine = _blankLine.notFollowedBy
     .skipThen(_thematicBreak.notFollowedBy)
@@ -1079,7 +1205,11 @@ final Parser<ParseError, void> _olStartingWith1 = _indentGuard.skipThen(
 );
 
 final Parser<ParseError, MdNode> _htmlBlockInterrupting = _indentGuard.skipThen(
-  _htmlBlock1 | _htmlBlock2 | _htmlBlock3 | _htmlBlock4 | _htmlBlock5 |
+  _htmlBlock1 |
+      _htmlBlock2 |
+      _htmlBlock3 |
+      _htmlBlock4 |
+      _htmlBlock5 |
       _htmlBlock6,
 );
 
@@ -1088,9 +1218,10 @@ final Parser<ParseError, MdNode> _htmlBlockInterrupting = _indentGuard.skipThen(
 final Parser<ParseError, void> _ulNonEmptyItem = _thematicBreak.notFollowedBy
     .skipThen(_indentGuard)
     .skipThen(
-      satisfy((c) => c == '-' || c == '+' || c == '*', 'marker')
-          .skipThen(char(' '))
-          .as<void>(null),
+      satisfy(
+        (c) => c == '-' || c == '+' || c == '*',
+        'marker',
+      ).skipThen(char(' ')).as<void>(null),
     );
 
 final Parser<ParseError, String> _paragraphContLine = _blankLine.notFollowedBy
@@ -1106,7 +1237,6 @@ final Parser<ParseError, String> _paragraphContLine = _blankLine.notFollowedBy
     .skipThen(_olStartingWith1.notFollowedBy)
     .skipThen(_restOfLine);
 
-
 List<MdNode> _parseInline(String text) {
   if (text.isEmpty) return const [];
   final result = _inlineTokens.run(text);
@@ -1119,7 +1249,6 @@ List<MdNode> _parseInline(String text) {
   final nodes = _processEmphasis(tokens);
   return _mergeTextNodes(nodes);
 }
-
 
 sealed class _Token {}
 
@@ -1141,15 +1270,17 @@ final class _DelimToken extends _Token {
   bool canOpen;
   bool canClose;
   bool active;
-  _DelimToken(this.ch, this.count,
-      {required this.canOpen, required this.canClose})
-      : active = true;
+  _DelimToken(
+    this.ch,
+    this.count, {
+    required this.canOpen,
+    required this.canClose,
+  }) : active = true;
 }
 
 final class _SoftBreakToken extends _Token {}
 
 final class _HardBreakToken extends _Token {}
-
 
 final Parser<ParseError, List<_Token>> _inlineTokens = _inlineToken.many;
 
@@ -1167,41 +1298,45 @@ final Parser<ParseError, _Token> _inlineToken =
     _iPlainText;
 
 final Parser<ParseError, _Token> _iCodeSpanOrLiteral =
-    _iCodeSpan | char('`').many1.capture.map(
-      (ticks) => _TextToken(ticks) as _Token,
-    );
+    _iCodeSpan |
+    char('`').many1.capture.map((ticks) => _TextToken(ticks) as _Token);
 
-
-final Parser<ParseError, _Token> _iCodeSpan =
-    char('`').many1.capture.flatMap((open) {
+final Parser<ParseError, _Token> _iCodeSpan = char('`').many1.capture.flatMap((
+  open,
+) {
   final n = open.length;
   final backtickRun = char('`').many1.capture;
   final nonBacktick = satisfy((c) => c != '`', 'non-backtick').many1.capture;
-  final segment = nonBacktick | backtickRun.flatMap((run) {
-    if (run.length == n) {
-      return failure<ParseError, String>(
-        CustomError('close', Location.zero),
-      );
-    }
-    return succeed<ParseError, String>(run);
-  });
-  return segment.many.capture.thenSkip(string('`' * n)).thenSkip(
-    char('`').notFollowedBy,
-  ).map((raw) {
-    var content = raw.replaceAll('\n', ' ');
-    if (content.length >= 2 &&
-        content.startsWith(' ') &&
-        content.endsWith(' ') &&
-        content.trim().isNotEmpty) {
-      content = content.substring(1, content.length - 1);
-    }
-    return _NodeToken(MdCode(content),
-        firstChar: '`', lastChar: '`') as _Token;
-  });
+  final segment =
+      nonBacktick |
+      backtickRun.flatMap((run) {
+        if (run.length == n) {
+          return failure<ParseError, String>(
+            CustomError('close', Location.zero),
+          );
+        }
+        return succeed<ParseError, String>(run);
+      });
+  return segment.many.capture
+      .thenSkip(string('`' * n))
+      .thenSkip(char('`').notFollowedBy)
+      .map((raw) {
+        var content = raw.replaceAll('\n', ' ');
+        if (content.length >= 2 &&
+            content.startsWith(' ') &&
+            content.endsWith(' ') &&
+            content.trim().isNotEmpty) {
+          content = content.substring(1, content.length - 1);
+        }
+        return _NodeToken(MdCode(content), firstChar: '`', lastChar: '`')
+            as _Token;
+      });
 });
 
-
-const _asciiPunctuation = r'!"#$%&' "'" r'()*+,-./:;<=>?@[\]^_`{|}~';
+const _asciiPunctuation =
+    r'!"#$%&'
+    "'"
+    r'()*+,-./:;<=>?@[\]^_`{|}~';
 
 final Parser<ParseError, _Token> _iBackslashEscape = char('\\').skipThen(
   char('\n').map((_) => _HardBreakToken() as _Token) |
@@ -1212,10 +1347,9 @@ final Parser<ParseError, _Token> _iBackslashEscape = char('\\').skipThen(
       succeed<ParseError, _Token>(_TextToken('\\')),
 );
 
-
-final Parser<ParseError, _Token> _iAutolink = char('<').skipThen(
-  _iUriAutolink | _iEmailAutolink,
-);
+final Parser<ParseError, _Token> _iAutolink = char(
+  '<',
+).skipThen(_iUriAutolink | _iEmailAutolink);
 
 final Parser<ParseError, _Token> _iUriAutolink = satisfy(
   (c) =>
@@ -1223,16 +1357,17 @@ final Parser<ParseError, _Token> _iUriAutolink = satisfy(
       (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0),
   'scheme start',
 ).flatMap((first) {
-  final schemeRest = satisfy(
-    (c) =>
-        (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-        (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-        (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
-        c == '+' ||
-        c == '.' ||
-        c == '-',
-    'scheme char',
-  ).manyAtLeast(1).capture;
+  final schemeRest =
+      satisfy(
+        (c) =>
+            (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+            (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+            (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
+            c == '+' ||
+            c == '.' ||
+            c == '-',
+        'scheme char',
+      ).manyAtLeast(1).capture;
   return schemeRest.thenSkip(char(':')).flatMap((rest) {
     if (rest.length > 31) {
       return failure<ParseError, _Token>(
@@ -1246,12 +1381,11 @@ final Parser<ParseError, _Token> _iUriAutolink = satisfy(
     ).many.capture.thenSkip(char('>')).map((uri) {
       final href = '$scheme$uri';
       return _NodeToken(
-        MdLink(
-          href: _percentEncodeUrl(href),
-          children: [MdText(href)],
-        ),
-        firstChar: '<', lastChar: '>',
-      ) as _Token;
+            MdLink(href: _percentEncodeUrl(href), children: [MdText(href)]),
+            firstChar: '<',
+            lastChar: '>',
+          )
+          as _Token;
     });
   });
 });
@@ -1279,14 +1413,15 @@ final Parser<ParseError, _Token> _iEmailAutolink = () {
       .zip(domainChar.many1.capture)
       .thenSkip(char('>'))
       .map((pair) {
-    final email = '${pair.$1}@${pair.$2}';
-    return _NodeToken(
-      MdLink(href: 'mailto:$email', children: [MdText(email)]),
-      firstChar: '<', lastChar: '>',
-    ) as _Token;
-  });
+        final email = '${pair.$1}@${pair.$2}';
+        return _NodeToken(
+              MdLink(href: 'mailto:$email', children: [MdText(email)]),
+              firstChar: '<',
+              lastChar: '>',
+            )
+            as _Token;
+      });
 }();
-
 
 final Parser<ParseError, _Token> _iRawHtmlInline = char('<').skipThen(
   _iHtmlComment |
@@ -1298,31 +1433,61 @@ final Parser<ParseError, _Token> _iRawHtmlInline = char('<').skipThen(
 );
 
 final Parser<ParseError, _Token> _iHtmlComment = string('!--').skipThen(
-  char('>').map((_) => _NodeToken(const MdHtmlInline('<!-->'),
-      firstChar: '<', lastChar: '>') as _Token) |
-  string('->').map((_) => _NodeToken(const MdHtmlInline('<!--->'),
-      firstChar: '<', lastChar: '>') as _Token) |
-  (string('-->').notFollowedBy.skipThen(anyChar()).many.capture
-      .thenSkip(string('-->'))
-      .map((c) => _NodeToken(MdHtmlInline('<!--$c-->'),
-          firstChar: '<', lastChar: '>') as _Token)),
+  char('>').map(
+        (_) =>
+            _NodeToken(
+                  const MdHtmlInline('<!-->'),
+                  firstChar: '<',
+                  lastChar: '>',
+                )
+                as _Token,
+      ) |
+      string('->').map(
+        (_) =>
+            _NodeToken(
+                  const MdHtmlInline('<!--->'),
+                  firstChar: '<',
+                  lastChar: '>',
+                )
+                as _Token,
+      ) |
+      (string('-->').notFollowedBy
+          .skipThen(anyChar())
+          .many
+          .capture
+          .thenSkip(string('-->'))
+          .map(
+            (c) =>
+                _NodeToken(
+                      MdHtmlInline('<!--$c-->'),
+                      firstChar: '<',
+                      lastChar: '>',
+                    )
+                    as _Token,
+          )),
 );
 
 final Parser<ParseError, _Token> _iHtmlPI = char('?')
-    .skipThen(
-      string('?>').notFollowedBy.skipThen(anyChar()).many.capture,
-    )
+    .skipThen(string('?>').notFollowedBy.skipThen(anyChar()).many.capture)
     .thenSkip(string('?>'))
-    .map((c) => _NodeToken(MdHtmlInline('<?$c?>'),
-        firstChar: '<', lastChar: '>') as _Token);
+    .map(
+      (c) =>
+          _NodeToken(MdHtmlInline('<?$c?>'), firstChar: '<', lastChar: '>')
+              as _Token,
+    );
 
 final Parser<ParseError, _Token> _iHtmlCDATA = string('![CDATA[')
-    .skipThen(
-      string(']]>').notFollowedBy.skipThen(anyChar()).many.capture,
-    )
+    .skipThen(string(']]>').notFollowedBy.skipThen(anyChar()).many.capture)
     .thenSkip(string(']]>'))
-    .map((c) => _NodeToken(MdHtmlInline('<![CDATA[$c]]>'),
-        firstChar: '<', lastChar: '>') as _Token);
+    .map(
+      (c) =>
+          _NodeToken(
+                MdHtmlInline('<![CDATA[$c]]>'),
+                firstChar: '<',
+                lastChar: '>',
+              )
+              as _Token,
+    );
 
 final Parser<ParseError, _Token> _iHtmlDecl = char('!')
     .skipThen(
@@ -1331,54 +1496,75 @@ final Parser<ParseError, _Token> _iHtmlDecl = char('!')
         'upper',
       ).many1.capture,
     )
-    .flatMap((tag) => satisfy(
-          (c) => c == ' ' || c == '\t' || c == '\n',
-          'ws',
-        ).skipThen(satisfy((c) => c != '>', 'decl char').many.capture).thenSkip(
-              char('>'),
-            ).map(
-              (content) =>
-                  _NodeToken(MdHtmlInline('<!$tag $content>'),
-                      firstChar: '<', lastChar: '>') as _Token,
-            ));
+    .flatMap(
+      (tag) => satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws')
+          .skipThen(satisfy((c) => c != '>', 'decl char').many.capture)
+          .thenSkip(char('>'))
+          .map(
+            (content) =>
+                _NodeToken(
+                      MdHtmlInline('<!$tag $content>'),
+                      firstChar: '<',
+                      lastChar: '>',
+                    )
+                    as _Token,
+          ),
+    );
 
 final Parser<ParseError, _Token> _iHtmlCloseTag = char('/')
     .skipThen(_htmlTagName)
-    .flatMap((tag) =>
-      satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws')
+    .flatMap(
+      (tag) => satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws')
           .many
           .capture
           .thenSkip(char('>'))
-          .map((ws) => _NodeToken(MdHtmlInline('</$tag$ws>'),
-              firstChar: '<', lastChar: '>') as _Token));
+          .map(
+            (ws) =>
+                _NodeToken(
+                      MdHtmlInline('</$tag$ws>'),
+                      firstChar: '<',
+                      lastChar: '>',
+                    )
+                    as _Token,
+          ),
+    );
 
-final Parser<ParseError, _Token> _iHtmlOpenTag = _htmlTagName
-    .flatMap((tag) => _htmlAttrs.flatMap((attrs) =>
-          satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws')
-              .many
-              .capture
-              .flatMap((ws) {
-            final selfClose =
-                string('/>').map((_) => '/>') | char('>').map((_) => '>');
-            return selfClose.map(
-              (close) => _NodeToken(MdHtmlInline('<$tag$attrs$ws$close'),
-                  firstChar: '<', lastChar: '>') as _Token,
-            );
-          })));
+final Parser<ParseError, _Token> _iHtmlOpenTag = _htmlTagName.flatMap(
+  (tag) => _htmlAttrs.flatMap(
+    (attrs) => satisfy(
+      (c) => c == ' ' || c == '\t' || c == '\n',
+      'ws',
+    ).many.capture.flatMap((ws) {
+      final selfClose =
+          string('/>').map((_) => '/>') | char('>').map((_) => '>');
+      return selfClose.map(
+        (close) =>
+            _NodeToken(
+                  MdHtmlInline('<$tag$attrs$ws$close'),
+                  firstChar: '<',
+                  lastChar: '>',
+                )
+                as _Token,
+      );
+    }),
+  ),
+);
 
 final Parser<ParseError, String> _htmlTagName = satisfy(
   (c) =>
       (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
       (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0),
   'tag start',
-).flatMap((first) => satisfy(
-      (c) =>
-          (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-          (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-          (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
-          c == '-',
-      'tag char',
-    ).many.capture.map((rest) => '$first$rest'));
+).flatMap(
+  (first) => satisfy(
+    (c) =>
+        (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+        (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+        (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
+        c == '-',
+    'tag char',
+  ).many.capture.map((rest) => '$first$rest'),
+);
 
 final Parser<ParseError, String> _htmlAttrs = _htmlAttr.many.map(
   (attrs) => attrs.join(),
@@ -1395,33 +1581,31 @@ final Parser<ParseError, String> _htmlAttr = satisfy(
         c == '_' ||
         c == ':',
     'attr start',
-  ).flatMap((first) => satisfy(
-        (c) =>
-            (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-            (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-            (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
-            c == '_' ||
-            c == '.' ||
-            c == ':' ||
-            c == '-',
-        'attr char',
-      ).many.capture.map((rest) => '$first$rest'));
+  ).flatMap(
+    (first) => satisfy(
+      (c) =>
+          (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+          (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+          (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
+          c == '_' ||
+          c == '.' ||
+          c == ':' ||
+          c == '-',
+      'attr char',
+    ).many.capture.map((rest) => '$first$rest'),
+  );
 
   final attrValue = satisfy(
-        (c) => c == ' ' || c == '\t' || c == '\n',
-        'ws',
-      ).many.capture.flatMap(
-        (ws2) => char('=').flatMap(
-          (_) => satisfy(
-                (c) => c == ' ' || c == '\t' || c == '\n',
-                'ws',
-              ).many.capture.flatMap(
-                (ws3) => _htmlAttrValue.map(
-                  (val) => '$ws2=$ws3$val',
-                ),
-              ),
-        ),
-      );
+    (c) => c == ' ' || c == '\t' || c == '\n',
+    'ws',
+  ).many.capture.flatMap(
+    (ws2) => char('=').flatMap(
+      (_) => satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws')
+          .many
+          .capture
+          .flatMap((ws3) => _htmlAttrValue.map((val) => '$ws2=$ws3$val')),
+    ),
+  );
 
   return attrName.flatMap(
     (name) =>
@@ -1432,13 +1616,13 @@ final Parser<ParseError, String> _htmlAttr = satisfy(
 
 final Parser<ParseError, String> _htmlAttrValue =
     (char('"')
-            .skipThen(satisfy((c) => c != '"', 'dq char').many.capture)
-            .thenSkip(char('"'))
-            .map((v) => '"$v"')) |
+        .skipThen(satisfy((c) => c != '"', 'dq char').many.capture)
+        .thenSkip(char('"'))
+        .map((v) => '"$v"')) |
     (char("'")
-            .skipThen(satisfy((c) => c != "'", 'sq char').many.capture)
-            .thenSkip(char("'"))
-            .map((v) => "'$v'")) |
+        .skipThen(satisfy((c) => c != "'", 'sq char').many.capture)
+        .thenSkip(char("'"))
+        .map((v) => "'$v'")) |
     satisfy(
       (c) =>
           c != '"' &&
@@ -1453,48 +1637,49 @@ final Parser<ParseError, String> _htmlAttrValue =
       'unquoted',
     ).many1.capture;
 
-
-final Parser<ParseError, _Token> _iEntity = char('&').skipThen(
-  _iNamedEntity | _iHexEntity | _iDecEntity,
-);
+final Parser<ParseError, _Token> _iEntity = char(
+  '&',
+).skipThen(_iNamedEntity | _iHexEntity | _iDecEntity);
 
 final Parser<ParseError, _Token> _iNamedEntity = satisfy(
   (c) =>
       (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
       (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0),
   'entity start',
-).flatMap((first) => satisfy(
-      (c) =>
-          (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-          (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-          (c.compareTo('0') >= 0 && c.compareTo('9') <= 0),
-      'entity char',
-    ).many.capture.thenSkip(char(';')).flatMap((rest) {
-      final name = '$first$rest';
-      final decoded = _htmlEntities[name];
-      if (decoded != null) {
-        return succeed<ParseError, _Token>(_TextToken(decoded));
-      }
-      return failure<ParseError, _Token>(
-        CustomError('unknown entity: $name', Location.zero),
-      );
-    }));
+).flatMap(
+  (first) => satisfy(
+    (c) =>
+        (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+        (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+        (c.compareTo('0') >= 0 && c.compareTo('9') <= 0),
+    'entity char',
+  ).many.capture.thenSkip(char(';')).flatMap((rest) {
+    final name = '$first$rest';
+    final decoded = _htmlEntities[name];
+    if (decoded != null) {
+      return succeed<ParseError, _Token>(_TextToken(decoded));
+    }
+    return failure<ParseError, _Token>(
+      CustomError('unknown entity: $name', Location.zero),
+    );
+  }),
+);
 
 final Parser<ParseError, _Token> _iDecEntity = char('#')
     .skipThen(digit().manyAtLeast(1).capture)
     .thenSkip(char(';'))
     .flatMap((digits) {
-  if (digits.length > 7) {
-    return failure<ParseError, _Token>(
-      CustomError('too many digits', Location.zero),
-    );
-  }
-  final code = int.parse(digits);
-  if (code == 0 || code > 0x10FFFF) {
-    return succeed<ParseError, _Token>(_TextToken('\u{FFFD}'));
-  }
-  return succeed<ParseError, _Token>(_TextToken(String.fromCharCode(code)));
-});
+      if (digits.length > 7) {
+        return failure<ParseError, _Token>(
+          CustomError('too many digits', Location.zero),
+        );
+      }
+      final code = int.parse(digits);
+      if (code == 0 || code > 0x10FFFF) {
+        return succeed<ParseError, _Token>(_TextToken('\u{FFFD}'));
+      }
+      return succeed<ParseError, _Token>(_TextToken(String.fromCharCode(code)));
+    });
 
 final Parser<ParseError, _Token> _iHexEntity = char('#')
     .skipThen(oneOf('xX'))
@@ -1509,71 +1694,88 @@ final Parser<ParseError, _Token> _iHexEntity = char('#')
     )
     .thenSkip(char(';'))
     .map((digits) {
-  if (digits.length > 6) return _TextToken('\u{FFFD}') as _Token;
-  final code = int.parse(digits, radix: 16);
-  if (code == 0) return _TextToken('\u{FFFD}') as _Token;
-  return _TextToken(String.fromCharCode(code)) as _Token;
-});
-
+      if (digits.length > 6) return _TextToken('\u{FFFD}') as _Token;
+      final code = int.parse(digits, radix: 16);
+      if (code == 0) return _TextToken('\u{FFFD}') as _Token;
+      return _TextToken(String.fromCharCode(code)) as _Token;
+    });
 
 final Parser<ParseError, _Token> _iDelimRun = satisfy(
   (c) => c == '*' || c == '_',
   'delim',
-).flatMap((ch) =>
-    char(ch).many.capture.map((rest) {
-  final count = 1 + rest.length;
-  return _DelimToken(ch, count, canOpen: false, canClose: false) as _Token;
-}));
-
+).flatMap(
+  (ch) => char(ch).many.capture.map((rest) {
+    final count = 1 + rest.length;
+    return _DelimToken(ch, count, canOpen: false, canClose: false) as _Token;
+  }),
+);
 
 final Parser<ParseError, _Token> _iImage = string('![')
     .skipThen(_bracketContent)
     .thenSkip(char(']'))
-    .flatMap((label) =>
-        _inlineDest.map((dest) =>
-          _NodeToken(MdImage(
-              src: dest.$1,
-              alt: _extractPlainText(label),
-              title: dest.$2),
-              firstChar: '!', lastChar: ')') as _Token,
-        ) |
-        _refDest(label).map((dest) =>
-          _NodeToken(MdImage(
-              src: dest.$1,
-              alt: _extractPlainText(label),
-              title: dest.$2),
-              firstChar: '!', lastChar: ']') as _Token,
-        ));
-
-
-final Parser<ParseError, _Token> _iLink = char('[')
-    .skipThen(_bracketContent)
-    .thenSkip(char(']'))
-    .flatMap((label) {
-      final children = _parseInline(label);
-      if (_containsLink(children)) {
-        return failure<ParseError, _Token>(
-          CustomError('nested link', Location.zero),
-        );
-      }
-      return _inlineDest.map((dest) =>
-            _NodeToken(MdLink(
-                href: dest.$1, title: dest.$2, children: children),
-                firstChar: '[', lastChar: ')') as _Token,
+    .flatMap(
+      (label) =>
+          _inlineDest.map(
+            (dest) =>
+                _NodeToken(
+                      MdImage(
+                        src: dest.$1,
+                        alt: _extractPlainText(label),
+                        title: dest.$2,
+                      ),
+                      firstChar: '!',
+                      lastChar: ')',
+                    )
+                    as _Token,
           ) |
-          _refDest(label).map((dest) =>
-            _NodeToken(MdLink(
-                href: dest.$1, title: dest.$2, children: children),
-                firstChar: '[', lastChar: ']') as _Token,
-          );
-    });
+          _refDest(label).map(
+            (dest) =>
+                _NodeToken(
+                      MdImage(
+                        src: dest.$1,
+                        alt: _extractPlainText(label),
+                        title: dest.$2,
+                      ),
+                      firstChar: '!',
+                      lastChar: ']',
+                    )
+                    as _Token,
+          ),
+    );
+
+final Parser<ParseError, _Token> _iLink = char(
+  '[',
+).skipThen(_bracketContent).thenSkip(char(']')).flatMap((label) {
+  final children = _parseInline(label);
+  if (_containsLink(children)) {
+    return failure<ParseError, _Token>(
+      CustomError('nested link', Location.zero),
+    );
+  }
+  return _inlineDest.map(
+        (dest) =>
+            _NodeToken(
+                  MdLink(href: dest.$1, title: dest.$2, children: children),
+                  firstChar: '[',
+                  lastChar: ')',
+                )
+                as _Token,
+      ) |
+      _refDest(label).map(
+        (dest) =>
+            _NodeToken(
+                  MdLink(href: dest.$1, title: dest.$2, children: children),
+                  firstChar: '[',
+                  lastChar: ']',
+                )
+                as _Token,
+      );
+});
 
 final Parser<ParseError, String> _bracketContent = () {
   final escaped = char('\\').skipThen(anyChar()).map((c) => '\\$c');
   final nested = char('[')
-      .skipThen(
-        defer(() => _bracketContent),
-      )
+      .skipThen(defer(() => _bracketContent))
       .thenSkip(char(']'))
       .map((inner) => '[$inner]');
   final codeSpan = char('`').many1.capture.flatMap((open) {
@@ -1581,14 +1783,20 @@ final Parser<ParseError, String> _bracketContent = () {
     final close = string('`' * n).thenSkip(char('`').notFollowedBy);
     final segment =
         satisfy((c) => c != '`', 'non-bt').many1.capture |
-        char('`').many1.capture.flatMap((run) => run.length == n
-            ? failure<ParseError, String>(CustomError('close', Location.zero))
-            : succeed<ParseError, String>(run));
+        char('`').many1.capture.flatMap(
+          (run) =>
+              run.length == n
+                  ? failure<ParseError, String>(
+                    CustomError('close', Location.zero),
+                  )
+                  : succeed<ParseError, String>(run),
+        );
     return segment.many.capture.thenSkip(close).map((c) => '$open$c$open');
   });
-  final htmlTag = char('<').skipThen(
-    satisfy((c) => c != '>', 'tag char').many1.capture,
-  ).thenSkip(char('>')).map((c) => '<$c>');
+  final htmlTag = char('<')
+      .skipThen(satisfy((c) => c != '>', 'tag char').many1.capture)
+      .thenSkip(char('>'))
+      .map((c) => '<$c>');
   final plain = satisfy(
     (c) => c != '[' && c != ']' && c != '\\' && c != '`' && c != '<',
     'bracket content',
@@ -1599,26 +1807,32 @@ final Parser<ParseError, String> _bracketContent = () {
 final Parser<ParseError, (String, String?)> _inlineDest = char('(')
     .skipThen(_inlineWs)
     .skipThen(_linkDest)
-    .flatMap((dest) => _inlineWs
-        .skipThen(_inlineLinkTitle.optional)
-        .thenSkip(_inlineWs)
-        .thenSkip(char(')'))
-        .map((title) => (
+    .flatMap(
+      (dest) => _inlineWs
+          .skipThen(_inlineLinkTitle.optional)
+          .thenSkip(_inlineWs)
+          .thenSkip(char(')'))
+          .map(
+            (title) => (
               _processUrl(dest),
               title != null ? _processTitle(title) : null,
-            )));
-
-final Parser<ParseError, void> _inlineWs =
-    satisfy((c) => c == ' ' || c == '\t' || c == '\n', 'ws').many.as<void>(
-      null,
+            ),
+          ),
     );
+
+final Parser<ParseError, void> _inlineWs = satisfy(
+  (c) => c == ' ' || c == '\t' || c == '\n',
+  'ws',
+).many.as<void>(null);
 
 final Parser<ParseError, String> _linkDest =
     (char('<')
         .skipThen(
           (char('\\').skipThen(anyChar()) |
-              satisfy((c) => c != '>' && c != '\n' && c != '<' && c != '\\',
-                  'dest char'))
+                  satisfy(
+                    (c) => c != '>' && c != '\n' && c != '<' && c != '\\',
+                    'dest char',
+                  ))
               .many
               .capture,
         )
@@ -1689,22 +1903,20 @@ Parser<ParseError, (String, String?)> _refDest(String label) {
       .skipThen(satisfy((c) => c != ']', 'ref char').many.capture)
       .thenSkip(char(']'))
       .flatMap((ref) {
-    final refLabel = ref.isEmpty ? label : ref;
-    final normalized =
-        _collapseWhitespace(_caseFold(refLabel)).trim();
-    final entry = _linkRefs[normalized];
-    if (entry == null) {
-      return failure<ParseError, (String, String?)>(
-        CustomError('ref not found', Location.zero),
-      );
-    }
-    return succeed<ParseError, (String, String?)>(entry);
-  });
+        final refLabel = ref.isEmpty ? label : ref;
+        final normalized = _collapseWhitespace(_caseFold(refLabel)).trim();
+        final entry = _linkRefs[normalized];
+        if (entry == null) {
+          return failure<ParseError, (String, String?)>(
+            CustomError('ref not found', Location.zero),
+          );
+        }
+        return succeed<ParseError, (String, String?)>(entry);
+      });
 
   // Shortcut: just [label] — not followed by [ (per spec §6.6).
   final shortcut = char('[').notFollowedBy.flatMap((_) {
-    final normalized =
-        _collapseWhitespace(_caseFold(label)).trim();
+    final normalized = _collapseWhitespace(_caseFold(label)).trim();
     final entry = _linkRefs[normalized];
     if (entry == null) {
       return failure<ParseError, (String, String?)>(
@@ -1734,22 +1946,19 @@ String _collapseWhitespace(String s) {
   return buf.toString();
 }
 
-
 final Parser<ParseError, _Token> _iHardBreak = string('  ')
     .skipThen(satisfy((c) => c == ' ', 'space').many)
     .thenSkip(char('\n'))
     .map((_) => _HardBreakToken() as _Token);
 
-
-final Parser<ParseError, _Token> _iSoftBreak =
-    char('\n').map((_) => _SoftBreakToken() as _Token);
-
+final Parser<ParseError, _Token> _iSoftBreak = char(
+  '\n',
+).map((_) => _SoftBreakToken() as _Token);
 
 final Parser<ParseError, _Token> _iPlainText = satisfy(
   (c) => true,
   'any',
 ).map((c) => _TextToken(c) as _Token);
-
 
 String _extractPlainText(String text) {
   final nodes = _parseInline(text);
@@ -1787,11 +1996,12 @@ String _collectText(List<MdNode> nodes) {
   return buf.toString();
 }
 
-final Parser<ParseError, String> _backslashEscapeResolver =
-    (char('\\').skipThen(
-          satisfy((c) => _asciiPunctuation.contains(c), 'esc')) |
-     anyChar())
-    .many.map((parts) => parts.join());
+final Parser<ParseError, String> _backslashEscapeResolver = (char(
+          '\\',
+        ).skipThen(satisfy((c) => _asciiPunctuation.contains(c), 'esc')) |
+        anyChar())
+    .many
+    .map((parts) => parts.join());
 
 String _resolveBackslashEscapes(String text) {
   if (!text.contains('\\')) return text;
@@ -1810,22 +2020,24 @@ final Parser<ParseError, String> _entityResolver = () {
           (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
           (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0),
       'alpha',
-    ).flatMap((first) => satisfy(
-          (c) =>
-              (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-              (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-              (c.compareTo('0') >= 0 && c.compareTo('9') <= 0),
-          'alnum',
-        ).many.capture.thenSkip(char(';')).flatMap((rest) {
-          final name = '$first$rest';
-          final decoded = _htmlEntities[name];
-          if (decoded != null) {
-            return succeed<ParseError, String>(decoded);
-          }
-          return failure<ParseError, String>(
-            CustomError('unknown entity', Location.zero),
-          );
-        })),
+    ).flatMap(
+      (first) => satisfy(
+        (c) =>
+            (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+            (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+            (c.compareTo('0') >= 0 && c.compareTo('9') <= 0),
+        'alnum',
+      ).many.capture.thenSkip(char(';')).flatMap((rest) {
+        final name = '$first$rest';
+        final decoded = _htmlEntities[name];
+        if (decoded != null) {
+          return succeed<ParseError, String>(decoded);
+        }
+        return failure<ParseError, String>(
+          CustomError('unknown entity', Location.zero),
+        );
+      }),
+    ),
   );
   final decEntity = string('&#').skipThen(
     satisfy(
@@ -1850,8 +2062,9 @@ final Parser<ParseError, String> _entityResolver = () {
       }),
     ),
   );
-  return (namedEntity | hexEntity | decEntity | anyChar())
-      .many.map((parts) => parts.join());
+  return (namedEntity | hexEntity | decEntity | anyChar()).many.map(
+    (parts) => parts.join(),
+  );
 }();
 
 String _resolveEntities(String text) {
@@ -1882,9 +2095,7 @@ String _percentEncodeUrl(String url) {
       i++;
       continue;
     }
-    final rune = url.runes.elementAt(
-      url.substring(0, i).runes.length,
-    );
+    final rune = url.runes.elementAt(url.substring(0, i).runes.length);
     if (rune <= 0x7F) {
       _percentEncodeByte(buf, rune);
       i++;
@@ -1959,7 +2170,6 @@ String _processUrl(String raw) =>
 String _processTitle(String raw) =>
     _resolveEntities(_resolveBackslashEscapes(raw));
 
-
 bool _isUnicodeWhitespace(String c) =>
     c == ' ' ||
     c == '\t' ||
@@ -1979,15 +2189,15 @@ void _classifyDelimiters(List<_Token> tokens) {
     if (token is! _DelimToken) continue;
 
     final before = i > 0 ? _lastCharOf(tokens[i - 1]) : '\n';
-    final after = i + 1 < tokens.length
-        ? _firstCharOf(tokens[i + 1])
-        : '\n';
+    final after = i + 1 < tokens.length ? _firstCharOf(tokens[i + 1]) : '\n';
 
-    final leftFlanking = !_isUnicodeWhitespace(after) &&
+    final leftFlanking =
+        !_isUnicodeWhitespace(after) &&
         (!_isPunctuation(after) ||
             _isUnicodeWhitespace(before) ||
             _isPunctuation(before));
-    final rightFlanking = !_isUnicodeWhitespace(before) &&
+    final rightFlanking =
+        !_isUnicodeWhitespace(before) &&
         (!_isPunctuation(before) ||
             _isUnicodeWhitespace(after) ||
             _isPunctuation(after));
@@ -1998,10 +2208,8 @@ void _classifyDelimiters(List<_Token> tokens) {
         ..canClose = rightFlanking;
     } else {
       token
-        ..canOpen =
-            leftFlanking && (!rightFlanking || _isPunctuation(before))
-        ..canClose =
-            rightFlanking && (!leftFlanking || _isPunctuation(after));
+        ..canOpen = leftFlanking && (!rightFlanking || _isPunctuation(before))
+        ..canClose = rightFlanking && (!leftFlanking || _isPunctuation(after));
     }
   }
 }
@@ -2129,7 +2337,6 @@ List<MdNode> _mergeTextNodes(List<MdNode> nodes) {
   return merged;
 }
 
-
 /// Unicode full case folding for link label matching. Dart's toLowerCase()
 /// does simple case mapping; full case folding expands some characters to
 /// multi-character strings (e.g. ẞ U+1E9E → ss, ﬃ U+FB03 → ffi).
@@ -2149,18 +2356,17 @@ String _caseFold(String s) {
 }
 
 const _fullCaseFolding = <int, String>{
-  0x00DF: 'ss',     // ß → ss
+  0x00DF: 'ss', // ß → ss
   0x0130: 'i\u0307', // İ → i + combining dot above
   0x0149: '\u02BCn', // ŉ → ʼn
-  0xFB00: 'ff',     // ﬀ → ff
-  0xFB01: 'fi',     // ﬁ → fi
-  0xFB02: 'fl',     // ﬂ → fl
-  0xFB03: 'ffi',    // ﬃ → ffi
-  0xFB04: 'ffl',    // ﬄ → ffl
-  0xFB05: 'st',     // ﬅ → st
-  0xFB06: 'st',     // ﬆ → st
+  0xFB00: 'ff', // ﬀ → ff
+  0xFB01: 'fi', // ﬁ → fi
+  0xFB02: 'fl', // ﬂ → fl
+  0xFB03: 'ffi', // ﬃ → ffi
+  0xFB04: 'ffl', // ﬄ → ffl
+  0xFB05: 'st', // ﬅ → st
+  0xFB06: 'st', // ﬆ → st
 };
-
 
 const _htmlEntities = <String, String>{
   'AElig': '\u00c6',

@@ -206,15 +206,16 @@ final Parser<ParseError, TomlValue> _tomlString = (_multiLineBasicString |
 
 // ---- Keys ----
 
-final Parser<ParseError, String> _bareKey = satisfy(
-  (c) =>
-      (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
-      (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
-      (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
-      c == '-' ||
-      c == '_',
-  'bare key char',
-).many1.capture;
+final Parser<ParseError, String> _bareKey =
+    satisfy(
+      (c) =>
+          (c.compareTo('a') >= 0 && c.compareTo('z') <= 0) ||
+          (c.compareTo('A') >= 0 && c.compareTo('Z') <= 0) ||
+          (c.compareTo('0') >= 0 && c.compareTo('9') <= 0) ||
+          c == '-' ||
+          c == '_',
+      'bare key char',
+    ).many1.capture;
 
 final Parser<ParseError, String> _simpleKey =
     _bareKey | _basicString | _literalString;
@@ -573,11 +574,19 @@ final Parser<ParseError, TomlValue> _inlineTable = () {
                     final p = keys.sublist(0, i).map(_esc).join('.');
                     if (inlineFrozen.contains(p)) {
                       return failure<ParseError, TomlValue>(
-                        CustomError('Cannot extend inline table key: $p', Location.zero),
+                        CustomError(
+                          'Cannot extend inline table key: $p',
+                          Location.zero,
+                        ),
                       );
                     }
                   }
-                  final err = _setNested(table, keys, value, defined: inlineDefined);
+                  final err = _setNested(
+                    table,
+                    keys,
+                    value,
+                    defined: inlineDefined,
+                  );
                   if (err != null) {
                     return failure<ParseError, TomlValue>(
                       CustomError(err, Location.zero),
@@ -653,21 +662,18 @@ final Parser<ParseError, TomlDocument> _tomlDocument = _skipBlankAndComments
     .skipThen(_keyValue.sepBy(_skipBlankAndComments))
     .flatMap(
       (rootPairs) => _section.many.flatMap(
-        (sections) => _skipBlankAndComments
-            .skipThen(_ws)
-            .skipThen(eof())
-            .flatMap((_) {
-              final result = _buildDocument(rootPairs, sections);
-              return switch (result) {
-                Success(:final value) =>
-                  succeed<ParseError, TomlDocument>(value),
-                Partial(:final value) =>
-                  succeed<ParseError, TomlDocument>(value),
-                Failure(:final errorThunk) => failure<ParseError, TomlDocument>(
-                  errorThunk().first,
-                ),
-              };
-            }),
+        (
+          sections,
+        ) => _skipBlankAndComments.skipThen(_ws).skipThen(eof()).flatMap((_) {
+          final result = _buildDocument(rootPairs, sections);
+          return switch (result) {
+            Success(:final value) => succeed<ParseError, TomlDocument>(value),
+            Partial(:final value) => succeed<ParseError, TomlDocument>(value),
+            Failure(:final errorThunk) => failure<ParseError, TomlDocument>(
+              errorThunk().first,
+            ),
+          };
+        }),
       ),
     );
 
@@ -789,9 +795,7 @@ Result<ParseError, TomlDocument> _buildDocument(
       final frozenErr = t.checkNotFrozen(pathStr);
       if (frozenErr != null) return _fail(frozenErr);
       if (t.dottedTables.contains(pathStr)) {
-        return _fail(
-          'Cannot define [$pathStr] — already used via dotted keys',
-        );
+        return _fail('Cannot define [$pathStr] — already used via dotted keys');
       }
 
       final (target, ensureErr) = _ensureTable(doc, path);

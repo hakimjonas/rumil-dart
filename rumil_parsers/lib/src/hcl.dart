@@ -256,13 +256,14 @@ Parser<ParseError, HclValue> _heredocLines(
   String marker,
   bool indented,
 ) {
-  final terminator = satisfy((c) => c == ' ' || c == '\t', 'indent').many
-      .capture
-      .flatMap(
-        (indent) => string(
-          marker,
-        ).flatMap((_) => (newline.as<void>(null) | eof()).map((_) => indent)),
-      );
+  final terminator = satisfy(
+    (c) => c == ' ' || c == '\t',
+    'indent',
+  ).many.capture.flatMap(
+    (indent) => string(
+      marker,
+    ).flatMap((_) => (newline.as<void>(null) | eof()).map((_) => indent)),
+  );
 
   Parser<ParseError, HclValue> go(List<String> lines) =>
       terminator.map<HclValue>((terminatorIndent) {
