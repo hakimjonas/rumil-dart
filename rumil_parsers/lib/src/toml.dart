@@ -7,19 +7,8 @@ import 'ast/toml.dart';
 import 'common.dart' as common;
 
 /// Parse a TOML document from [input].
-Result<ParseError, TomlDocument> parseToml(String input) {
-  try {
-    return _tomlDocument.run(input);
-  } on FormatException catch (e) {
-    return Failure.eager([
-      CustomError(e.message, Location.zero),
-    ], Location.zero);
-  } on RangeError catch (e) {
-    return Failure.eager([
-      CustomError(e.toString(), Location.zero),
-    ], Location.zero);
-  }
-}
+Result<ParseError, TomlDocument> parseToml(String input) =>
+    _tomlDocument.run(input);
 
 // ---- Whitespace & comments ----
 
@@ -588,29 +577,32 @@ final Parser<ParseError, TomlValue> _inlineTable = () {
                 ? (inlineWs.skipThen(char(',')).skipThen(inlineWs)).optional
                 : succeed<ParseError, void>(null))
             .skipThen(
-              inlineWs.skipThen(char('}')).map((_) {
+              inlineWs.skipThen(char('}')).flatMap((_) {
                 final table = <String, TomlValue>{};
                 final inlineDefined = <String>{};
                 final inlineFrozen = <String>{};
                 for (final (keys, value) in pairs) {
-                  // Check intermediate paths aren't frozen.
                   for (var i = 1; i < keys.length; i++) {
                     final p = keys.sublist(0, i).map(_esc).join('.');
                     if (inlineFrozen.contains(p)) {
-                      throw FormatException(
-                        'Cannot extend inline table key: $p',
+                      return failure<ParseError, TomlValue>(
+                        CustomError('Cannot extend inline table key: $p', Location.zero),
                       );
                     }
                   }
-                  _setNested(table, keys, value, defined: inlineDefined);
-                  // Freeze inline table values.
+                  final err = _setNested(table, keys, value, defined: inlineDefined);
+                  if (err != null) {
+                    return failure<ParseError, TomlValue>(
+                      CustomError(err, Location.zero),
+                    );
+                  }
                   final fullPath = keys.map(_esc).join('.');
                   if (value is TomlTable) {
                     inlineFrozen.add(fullPath);
                     _freezePaths(inlineFrozen, fullPath, value);
                   }
                 }
-                return TomlTable(table) as TomlValue;
+                return succeed<ParseError, TomlValue>(TomlTable(table));
               }),
             ),
       );
@@ -677,17 +669,34 @@ final Parser<ParseError, TomlDocument> _tomlDocument = _skipBlankAndComments
         (sections) => _skipBlankAndComments
             .skipThen(_ws)
             .skipThen(eof())
-            .map((_) => _buildDocument(rootPairs, sections)),
+            .flatMap((_) {
+              final result = _buildDocument(rootPairs, sections);
+              return switch (result) {
+                Success(:final value) =>
+                  succeed<ParseError, TomlDocument>(value),
+                Partial(:final value) =>
+                  succeed<ParseError, TomlDocument>(value),
+                Failure(:final errorThunk) => failure<ParseError, TomlDocument>(
+                  errorThunk().first,
+                ),
+              };
+            }),
       ),
     );
 
 // ---- Document assembly ----
 
-TomlDocument _buildDocument(List<_KVPair> rootPairs, List<_Section> sections) {
+Failure<ParseError, TomlDocument> _fail(String msg) =>
+    Failure.eager([CustomError(msg, Location.zero)], Location.zero);
+
+Result<ParseError, TomlDocument> _buildDocument(
+  List<_KVPair> rootPairs,
+  List<_Section> sections,
+) {
   final doc = <String, TomlValue>{};
   final t = _TableTracker();
 
-  void setInSection(
+  String? setInSection(
     Map<String, TomlValue> target,
     List<_KVPair> pairs,
     String sectionPrefix,
@@ -695,83 +704,73 @@ TomlDocument _buildDocument(List<_KVPair> rootPairs, List<_Section> sections) {
     for (final (keys, value) in pairs) {
       final fullPath = _joinPath(sectionPrefix, keys.map(_esc).join('.'));
 
-      // Check we're not extending a frozen (inline-table) path.
-      t.checkNotFrozen(fullPath);
+      final frozenErr = t.checkNotFrozen(fullPath);
+      if (frozenErr != null) return frozenErr;
 
-      // Track intermediate dotted-key tables and check constraints.
       for (var i = 1; i < keys.length; i++) {
         final intermediate = _joinPath(
           sectionPrefix,
           keys.sublist(0, i).map(_esc).join('.'),
         );
-        t.checkNotFrozen(intermediate);
-        // Dotted keys from one section can't extend an explicit table.
+        final intErr = t.checkNotFrozen(intermediate);
+        if (intErr != null) return intErr;
         if (t.explicitTables.contains(intermediate) &&
             intermediate != sectionPrefix) {
-          throw FormatException(
-            'Cannot extend [$intermediate] via dotted keys',
-          );
+          return 'Cannot extend [$intermediate] via dotted keys';
         }
         t.dottedTables.add(intermediate);
       }
 
-      // Cannot overwrite a key already used as a dotted-key intermediate.
       if (keys.length == 1 && t.dottedTables.contains(fullPath)) {
-        throw FormatException('Cannot overwrite key: $fullPath');
+        return 'Cannot overwrite key: $fullPath';
       }
 
-      _setNested(
+      final setErr = _setNested(
         target,
         keys,
         value,
         defined: t.definedKeys,
         prefix: sectionPrefix,
       );
+      if (setErr != null) return setErr;
 
-      // If value is an inline table, freeze it and all sub-paths.
       if (value is TomlTable) {
         t.freezeInlineTable(fullPath, value);
       }
-      // If value is a static array, mark it as frozen.
       if (value is TomlArray) {
         t.frozen.add(fullPath);
       }
     }
+    return null;
   }
 
-  setInSection(doc, rootPairs, '');
+  final rootErr = setInSection(doc, rootPairs, '');
+  if (rootErr != null) return _fail(rootErr);
 
   for (final (isArray, path, pairs) in sections) {
     final pathStr = path.map(_esc).join('.');
 
     if (isArray) {
-      // Cannot overwrite a scalar key or a frozen table.
       if (t.definedKeys.contains(pathStr)) {
-        throw FormatException('Cannot redefine key as array: $pathStr');
+        return _fail('Cannot redefine key as array: $pathStr');
       }
-      t.checkNotFrozen(pathStr);
-      // Cannot mix [[array]] with [table] at the same path.
+      final frozenErr = t.checkNotFrozen(pathStr);
+      if (frozenErr != null) return _fail(frozenErr);
       if (t.explicitTables.contains(pathStr)) {
-        throw FormatException(
-          'Cannot define [[array]] after [table]: $pathStr',
-        );
+        return _fail('Cannot define [[array]] after [table]: $pathStr');
       }
-      // Cannot use [[array]] if path was created via dotted keys.
       if (t.dottedTables.contains(pathStr)) {
-        throw FormatException(
+        return _fail(
           'Cannot define [[array]] — $pathStr was defined via dotted keys',
         );
       }
-      // Cannot use [[array]] if path was implicitly used as a non-array table
-      // by a previous [[nested.path]] (e.g. [[a.b]] before [[a]]).
       if (t.implicitTables.contains(pathStr) &&
           !t.arrayTables.contains(pathStr)) {
-        throw FormatException(
+        return _fail(
           'Cannot define [[array]] — $pathStr was used as implicit table',
         );
       }
       t.arrayTables.add(pathStr);
-      // Track intermediate paths as implicit tables (only if not already arrays).
       for (var i = 1; i < path.length; i++) {
         final implicit = path.sublist(0, i).map(_esc).join('.');
         if (!t.arrayTables.contains(implicit)) {
@@ -781,44 +780,41 @@ TomlDocument _buildDocument(List<_KVPair> rootPairs, List<_Section> sections) {
 
       final table = <String, TomlValue>{};
       for (final (keys, value) in pairs) {
-        _setNested(table, keys, value);
+        final err = _setNested(table, keys, value);
+        if (err != null) return _fail(err);
       }
-      _appendArrayTable(doc, path, table);
-      // New array entry resets sub-table/key tracking for this scope.
+      final appendErr = _appendArrayTable(doc, path, table);
+      if (appendErr != null) return _fail(appendErr);
       t.explicitTables.removeWhere((k) => k.startsWith('$pathStr.'));
       t.definedKeys.removeWhere((k) => k.startsWith('$pathStr.'));
       t.dottedTables.removeWhere((k) => k.startsWith('$pathStr.'));
     } else {
-      // Cannot mix [table] with [[array]] at the same path.
       if (t.arrayTables.contains(pathStr)) {
-        throw FormatException(
-          'Cannot define [table] after [[array]]: $pathStr',
-        );
+        return _fail('Cannot define [table] after [[array]]: $pathStr');
       }
-      // Cannot redefine explicit table.
       if (t.explicitTables.contains(pathStr)) {
-        throw FormatException('Duplicate table: [$pathStr]');
+        return _fail('Duplicate table: [$pathStr]');
       }
       t.explicitTables.add(pathStr);
-      // Cannot redefine scalar key as table.
       if (t.definedKeys.contains(pathStr)) {
-        throw FormatException('Cannot redefine key as table: $pathStr');
+        return _fail('Cannot redefine key as table: $pathStr');
       }
-      // Cannot extend inline table.
-      t.checkNotFrozen(pathStr);
-      // Cannot extend via dotted keys from another section.
+      final frozenErr = t.checkNotFrozen(pathStr);
+      if (frozenErr != null) return _fail(frozenErr);
       if (t.dottedTables.contains(pathStr)) {
-        throw FormatException(
+        return _fail(
           'Cannot define [$pathStr] — already used via dotted keys',
         );
       }
 
-      final target = _ensureTable(doc, path);
-      setInSection(target, pairs, pathStr);
+      final (target, ensureErr) = _ensureTable(doc, path);
+      if (ensureErr != null) return _fail(ensureErr);
+      final sectionErr = setInSection(target!, pairs, pathStr);
+      if (sectionErr != null) return _fail(sectionErr);
     }
   }
 
-  return doc;
+  return Success(doc, 0);
 }
 
 String _joinPath(String prefix, String suffix) =>
@@ -843,19 +839,19 @@ class _TableTracker {
   /// Tables implicitly created by `[[a.b]]` path navigation.
   final implicitTables = <String>{};
 
-  /// Throws if any prefix of [path] is frozen (inline-table immutability).
-  void checkNotFrozen(String path) {
+  /// Returns error message if [path] or any parent is frozen, null otherwise.
+  String? checkNotFrozen(String path) {
     if (frozen.contains(path)) {
-      throw FormatException('Cannot extend inline table: $path');
+      return 'Cannot extend inline table: $path';
     }
-    // Also check if any PARENT of the path is frozen.
     final parts = path.split('.');
     for (var i = 1; i < parts.length; i++) {
       final parent = parts.sublist(0, i).join('.');
       if (frozen.contains(parent)) {
-        throw FormatException('Cannot extend inline table: $parent');
+        return 'Cannot extend inline table: $parent';
       }
     }
+    return null;
   }
 
   /// Recursively freeze an inline table and all its sub-paths.
@@ -871,8 +867,8 @@ class _TableTracker {
   }
 }
 
-/// Set a nested value, throwing on duplicate keys.
-void _setNested(
+/// Set a nested value. Returns error message on duplicate/conflict, null on success.
+String? _setNested(
   Map<String, TomlValue> target,
   List<String> keys,
   TomlValue value, {
@@ -887,7 +883,7 @@ void _setNested(
     if (existing is TomlTable) {
       current = existing.pairs;
     } else if (existing != null) {
-      throw FormatException('Cannot redefine key as table: $path');
+      return 'Cannot redefine key as table: $path';
     } else {
       final sub = <String, TomlValue>{};
       current[keys[i]] = TomlTable(sub);
@@ -896,17 +892,16 @@ void _setNested(
   }
   final fullPath = path.isEmpty ? _esc(keys.last) : '$path.${_esc(keys.last)}';
   if (defined != null && !defined.add(fullPath)) {
-    throw FormatException('Duplicate key: $fullPath');
+    return 'Duplicate key: $fullPath';
   }
   final existing = current[keys.last];
   if (existing != null) {
-    // Can extend an existing table (from intermediate dotted keys), but
-    // can't overwrite anything with a scalar or overwrite a scalar.
     if (existing is! TomlTable || value is! TomlTable) {
-      throw FormatException('Duplicate key: $fullPath');
+      return 'Duplicate key: $fullPath';
     }
   }
   current[keys.last] = value;
+  return null;
 }
 
 /// Escape a key for use in canonical paths (handles dots in quoted keys).
@@ -923,25 +918,29 @@ void _freezePaths(Set<String> frozen, String prefix, TomlTable table) {
   }
 }
 
-Map<String, TomlValue> _ensureTable(
+(Map<String, TomlValue>?, String?) _ensureTable(
   Map<String, TomlValue> root,
   List<String> path,
 ) {
   var current = root;
   for (final key in path) {
-    current = _navigateInto(current, key);
+    final (next, err) = _navigateInto(current, key);
+    if (err != null) return (null, err);
+    current = next!;
   }
-  return current;
+  return (current, null);
 }
 
-void _appendArrayTable(
+String? _appendArrayTable(
   Map<String, TomlValue> root,
   List<String> path,
   Map<String, TomlValue> table,
 ) {
   var current = root;
   for (var i = 0; i < path.length - 1; i++) {
-    current = _navigateInto(current, path[i]);
+    final (next, err) = _navigateInto(current, path[i]);
+    if (err != null) return err;
+    current = next!;
   }
 
   final key = path.last;
@@ -951,26 +950,27 @@ void _appendArrayTable(
   } else {
     current[key] = TomlArray([TomlTable(table)]);
   }
+  return null;
 }
 
 /// Navigate into a table or the last element of an array-of-tables.
-Map<String, TomlValue> _navigateInto(
+/// Returns (table, null) on success, or (null, errorMessage) on failure.
+(Map<String, TomlValue>?, String?) _navigateInto(
   Map<String, TomlValue> current,
   String key,
 ) {
   final existing = current[key];
   if (existing is TomlTable) {
-    return existing.pairs;
+    return (existing.pairs, null);
   } else if (existing is TomlArray && existing.elements.isNotEmpty) {
     final last = existing.elements.last;
     if (last is TomlTable) {
-      return last.pairs;
+      return (last.pairs, null);
     }
   } else if (existing != null) {
-    // Scalar/array value — can't navigate into it.
-    throw FormatException('Cannot use key "$key" as a table — already defined');
+    return (null, 'Cannot use key "$key" as a table — already defined');
   }
   final sub = <String, TomlValue>{};
   current[key] = TomlTable(sub);
-  return sub;
+  return (sub, null);
 }
