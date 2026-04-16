@@ -166,6 +166,8 @@ final expr = rule(() =>
 | HCL       | 50 resources (12 KB) | 10.5 ms  | 1.2 MB/s   |
 | Proto3    | Schema (499 B)       | 392 μs   | 1.3 MB/s   |
 | Proto3    | 50 messages (16 KB)  | 12.2 ms  | 1.3 MB/s   |
+| Markdown  | README (969 B)       | 4.3 ms   | 0.2 MB/s   |
+| Markdown  | 20 sections (14 KB)  | 78 ms    | 0.2 MB/s   |
 
 ### WasmGC
 
@@ -183,8 +185,10 @@ final expr = rule(() =>
 | HCL       | 50 resources (12 KB) | 4.8 ms   | 2.5 MB/s   | 2.2x faster  |
 | Proto3    | Schema (499 B)       | 170 μs   | 2.9 MB/s   | 2.3x faster  |
 | Proto3    | 50 messages (16 KB)  | 5.5 ms   | 2.9 MB/s   | 2.2x faster  |
+| Markdown  | README (969 B)       | 1.9 ms   | 0.5 MB/s   | 2.2x faster  |
+| Markdown  | 20 sections (14 KB)  | 36 ms    | 0.4 MB/s   | 2.2x faster  |
 
-CSV is fastest (simple grammar, no backtracking). YAML is slowest (indentation-sensitive, heavy backtracking). WasmGC is consistently 1.6-2.3x faster than AOT native across all formats.
+CSV is fastest (simple grammar, no backtracking). Markdown is slowest (context-sensitive, two-pass link resolution, emphasis delimiter algorithm, heavy backtracking). WasmGC is consistently 1.6-2.3x faster than AOT native across all formats.
 
 ---
 

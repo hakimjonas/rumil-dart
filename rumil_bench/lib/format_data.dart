@@ -230,6 +230,72 @@ message ListUsersRequest {
 }
 ''';
 
+String markdownSmall() => '''
+# Project README
+
+A **parser combinator** library for Dart 3 with _typed errors_ and left recursion.
+
+## Features
+
+- Sealed Parser ADT with 26 subtypes
+- Stack-safe trampolining (tested to 10M depth)
+- Warth seed-growth [left recursion](https://en.wikipedia.org/wiki/Left_recursion)
+- Lazy error construction via `late final` thunks
+
+## Quick Start
+
+```dart
+import 'package:rumil/rumil.dart';
+
+final number = digit().many1.capture.map(int.parse);
+final add = symbol('+').map((_) => (int a, int b) => a + b);
+final expr = number.chainl1(add);
+```
+
+> **Note:** This is a *block quote* with **bold** and `inline code`.
+> It spans multiple lines.
+
+1. First item
+2. Second item with [a link](https://example.com "Example")
+3. Third item with ![an image](img.png "Logo")
+
+---
+
+| Column A | Column B | Column C |
+|----------|----------|----------|
+| cell 1   | cell 2   | cell 3   |
+| cell 4   | cell 5   | cell 6   |
+
+Visit <https://example.com> or email <user@example.com>.
+''';
+
+String markdownLarge() {
+  final sb = StringBuffer();
+  sb.writeln('# Large Document\n');
+  for (var section = 0; section < 20; section++) {
+    sb.writeln('## Section $section\n');
+    sb.writeln('Introduction paragraph for section $section with **bold text**, '
+        '*italic text*, and `inline code`. Also a [link](https://example.com/$section "Title $section").\n');
+    sb.writeln('> A blockquote in section $section with *emphasis* and **strong**.');
+    sb.writeln('> Second line of the blockquote.\n');
+    sb.writeln('```dart');
+    sb.writeln('void main() {');
+    sb.writeln('  print("Section $section");');
+    sb.writeln('}');
+    sb.writeln('```\n');
+    for (var item = 0; item < 5; item++) {
+      sb.writeln('- List item $item in section $section with `code` and [link](#s$section)');
+    }
+    sb.writeln();
+    for (var item = 1; item <= 3; item++) {
+      sb.writeln('$item. Ordered item $item with **bold** and *italic*');
+    }
+    sb.writeln();
+    sb.writeln('---\n');
+  }
+  return sb.toString();
+}
+
 String protoLarge() {
   final sb = StringBuffer();
   sb.writeln('syntax = "proto3";');
