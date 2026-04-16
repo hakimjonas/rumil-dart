@@ -592,7 +592,7 @@ Result<E, A> _interpretMemo<E, A>(
       final slot = state.memo.getRaw(key, pos);
       if (slot case MemoSlotLR(:final lr)) return lr.seed as Result<E, A>;
       if (slot case MemoSlotEntry(:final entry)) {
-        state.restoreTo(entry.endPos, state.line, state.column);
+        state.restoreTo(entry.endPos);
         return state.memo.getResult(key, pos)!;
       }
     }
@@ -600,7 +600,7 @@ Result<E, A> _interpretMemo<E, A>(
       final slot = state.memo.getRaw(key, pos);
       if (slot case MemoSlotLR(:final lr)) return lr.seed as Result<E, A>;
       if (slot case MemoSlotEntry(:final entry)) {
-        state.restoreTo(entry.endPos, state.line, state.column);
+        state.restoreTo(entry.endPos);
         return state.memo.getResult(key, pos)!;
       }
     }
@@ -613,7 +613,7 @@ Result<E, A> _evaluateMemo<E, A>(
   Parser<E, A> inner,
   MemoKey<E, A> key,
   int pos,
-  Snapshot startSnapshot,
+  int startSnapshot,
   ParserState state,
 ) {
   final slot = state.memo.getRaw(key, pos);
@@ -624,7 +624,7 @@ Result<E, A> _evaluateMemo<E, A>(
   }
 
   if (slot case MemoSlotEntry(:final entry)) {
-    state.restoreTo(entry.endPos, state.line, state.column);
+    state.restoreTo(entry.endPos);
     return entry.result as Result<E, A>;
   }
 
@@ -682,18 +682,16 @@ void _setupLR(Object key, LR lr, ParserState state) {
 Result<E, A> _growLR<E, A>(
   Parser<E, A> inner,
   MemoKey<E, A> key,
-  Snapshot startSnapshot,
+  int startSnapshot,
   LR lr,
   int seedEndPos,
   ParserState state,
 ) {
-  final pos = startSnapshot.offset;
+  final pos = startSnapshot;
   state.heads[pos] = lr.head!;
 
   var lastResult = lr.seed as Result<E, A>;
   var lastPos = seedEndPos;
-  var lastLine = state.line;
-  var lastColumn = state.column;
 
   while (true) {
     state.restore(startSnapshot);
@@ -707,13 +705,11 @@ Result<E, A> _growLR<E, A>(
 
     lastResult = result;
     lastPos = resultPos;
-    lastLine = state.line;
-    lastColumn = state.column;
     lr.seed = result;
   }
 
   state.heads.remove(pos);
-  state.restoreTo(lastPos, lastLine, lastColumn);
+  state.restoreTo(lastPos);
   state.memo.put(key, pos, lastResult, lastPos);
   return lastResult;
 }
@@ -731,7 +727,7 @@ Result<E, A> _interpretSimpleMemo<E, A>(
   final entry = state.simpleCache.getEntry(key, pos);
 
   if (entry != null) {
-    state.restoreTo(entry.endPos, state.line, state.column);
+    state.restoreTo(entry.endPos);
     return entry.result as Result<E, A>;
   }
 

@@ -3,26 +3,67 @@ library;
 
 /// A position in source text.
 ///
-/// Line and column are 1-indexed. Offset is 0-indexed from start of input.
-extension type const Location._(({int line, int column, int offset}) _) {
-  /// Creates a location at [line], [column], and byte [offset].
-  const Location({required int line, required int column, required int offset})
-    : _ = (line: line, column: column, offset: offset);
-
-  /// The start of input: line 1, column 1, offset 0.
-  static const zero = Location(line: 1, column: 1, offset: 0);
-
-  /// 1-indexed line number.
-  int get line => _.line;
-
-  /// 1-indexed column number.
-  int get column => _.column;
+/// Line and column are computed lazily from offset and input string.
+/// Offset is 0-indexed from start of input.
+final class Location {
+  final String _input;
 
   /// 0-indexed byte offset from start of input.
-  int get offset => _.offset;
+  final int offset;
+
+  /// Creates a location at [offset] within [input].
+  const Location(this._input, this.offset);
+
+  /// The start of input: line 1, column 1, offset 0.
+  static const zero = _ZeroLocation();
+
+  /// 1-indexed line number.
+  int get line {
+    var n = 1;
+    for (var i = 0; i < offset; i++) {
+      if (_input.codeUnitAt(i) == 0x0A) n++;
+    }
+    return n;
+  }
+
+  /// 1-indexed column number.
+  int get column {
+    var col = 1;
+    for (var i = offset - 1; i >= 0; i--) {
+      if (_input.codeUnitAt(i) == 0x0A) break;
+      col++;
+    }
+    return col;
+  }
 
   /// Formats as `line:column (offset N)`.
   String format() => '$line:$column (offset $offset)';
+
+  @override
+  String toString() => format();
+}
+
+/// Sentinel for offset 0 — avoids requiring an input string.
+final class _ZeroLocation implements Location {
+  const _ZeroLocation();
+
+  @override
+  String get _input => '';
+
+  @override
+  int get offset => 0;
+
+  @override
+  int get line => 1;
+
+  @override
+  int get column => 1;
+
+  @override
+  String format() => '1:1 (offset 0)';
+
+  @override
+  String toString() => format();
 }
 
 /// A contiguous range in source text from [start] to [end].
