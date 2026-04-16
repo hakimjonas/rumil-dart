@@ -46,7 +46,7 @@ final Parser<ParseError, JsonValue> _jsonNumber = _lex(
                   '1-9',
                 )
                 .zip(digit().many)
-                .map(((String, List<String>) pair) => pair.$1 + pair.$2.join()))
+                .capture)
         .flatMap(
           (intPart) => char('.')
               .skipThen(digit().many1)

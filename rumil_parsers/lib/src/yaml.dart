@@ -745,7 +745,7 @@ final Parser<ParseError, String> _anchorName = satisfy(
       c != '}' &&
       c != ',',
   'anchor name char',
-).many1.map((cs) => cs.join());
+).many1.capture;
 
 /// Alias: `*name` as a value.
 final Parser<ParseError, YamlValue> _yamlAlias = char(

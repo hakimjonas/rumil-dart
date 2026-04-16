@@ -60,35 +60,22 @@ bool _isAllowedMultilineChar(String c) {
 
 // ---- Strings ----
 
-final Parser<ParseError, String> _unicodeEscape4 = char(
-  'u',
-).skipThen(common.hexDigit().times(4)).flatMap((ds) {
-  final cp = int.parse(ds.join(), radix: 16);
-  if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
-    return failure<ParseError, String>(
-      CustomError(
-        'Invalid Unicode codepoint: U+${cp.toRadixString(16)}',
-        Location.zero,
-      ),
-    );
-  }
-  return succeed<ParseError, String>(String.fromCharCode(cp));
-});
+Parser<ParseError, String> _unicodeEscape(String marker, int count) =>
+    char(marker).skipThen(common.hexDigit().times(count)).flatMap((ds) {
+      final cp = int.parse(ds.join(), radix: 16);
+      if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+        return failure<ParseError, String>(
+          CustomError(
+            'Invalid Unicode codepoint: U+${cp.toRadixString(16)}',
+            Location.zero,
+          ),
+        );
+      }
+      return succeed<ParseError, String>(String.fromCharCode(cp));
+    });
 
-final Parser<ParseError, String> _unicodeEscape8 = char(
-  'U',
-).skipThen(common.hexDigit().times(8)).flatMap((ds) {
-  final cp = int.parse(ds.join(), radix: 16);
-  if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
-    return failure<ParseError, String>(
-      CustomError(
-        'Invalid Unicode codepoint: U+${cp.toRadixString(16)}',
-        Location.zero,
-      ),
-    );
-  }
-  return succeed<ParseError, String>(String.fromCharCode(cp));
-});
+final Parser<ParseError, String> _unicodeEscape4 = _unicodeEscape('u', 4);
+final Parser<ParseError, String> _unicodeEscape8 = _unicodeEscape('U', 8);
 
 final Parser<ParseError, String> _hexEscape2 = char('x')
     .skipThen(common.hexDigit().times(2))
@@ -227,7 +214,7 @@ final Parser<ParseError, String> _bareKey = satisfy(
       c == '-' ||
       c == '_',
   'bare key char',
-).many1.map((cs) => cs.join());
+).many1.capture;
 
 final Parser<ParseError, String> _simpleKey =
     _bareKey | _basicString | _literalString;

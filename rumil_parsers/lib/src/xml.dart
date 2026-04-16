@@ -95,7 +95,7 @@ final Parser<ParseError, String> _xmlName = satisfy(
       'name start char',
     )
     .zip(satisfy(_isNameChar, 'name char').many)
-    .map(((String, List<String>) pair) => pair.$1 + pair.$2.join());
+    .capture;
 
 bool _isNcNameStartChar(String c) =>
     _isNameStartChar(c) && c.codeUnitAt(0) != 0x3A;
@@ -105,7 +105,7 @@ final Parser<ParseError, String> _ncName = satisfy(
       'NCName start char',
     )
     .zip(satisfy(_isNcNameChar, 'NCName char').many)
-    .map(((String, List<String>) pair) => pair.$1 + pair.$2.join());
+    .capture;
 
 final Parser<ParseError, QName> _qualifiedName =
     _ncName.flatMap((first) =>
@@ -116,7 +116,7 @@ final Parser<ParseError, QName> _qualifiedName =
 
 Parser<ParseError, String> _charsUntil(String delim) => (string(delim)
     .notFollowedBy
-    .skipThen(satisfy(_isXmlChar, 'XML char'))).many.map((cs) => cs.join());
+    .skipThen(satisfy(_isXmlChar, 'XML char'))).many.capture;
 
 bool _isXmlChar(String c) {
   final cp = c.codeUnitAt(0);
@@ -124,7 +124,7 @@ bool _isXmlChar(String c) {
 }
 
 final Parser<ParseError, String> _commentContent = (string('--').notFollowedBy
-    .skipThen(satisfy(_isXmlChar, 'XML char'))).many.map((cs) => cs.join());
+    .skipThen(satisfy(_isXmlChar, 'XML char'))).many.capture;
 
 final Parser<ParseError, XmlNode> _xmlComment = string('<!--')
     .skipThen(_commentContent)
@@ -753,7 +753,7 @@ final Parser<ParseError, String> _systemLiteral =
           satisfy(
             (c) => c != '"' && _isXmlChar(c),
             'char',
-          ).many.map((cs) => cs.join()),
+          ).many.capture,
         )
         .thenSkip(char('"')) |
     char("'")
@@ -761,7 +761,7 @@ final Parser<ParseError, String> _systemLiteral =
           satisfy(
             (c) => c != "'" && _isXmlChar(c),
             'char',
-          ).many.map((cs) => cs.join()),
+          ).many.capture,
         )
         .thenSkip(char("'"));
 
