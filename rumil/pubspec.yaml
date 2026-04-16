@@ -2,7 +2,7 @@ name: rumil
 description: >-
   Parser combinator library for Dart with left recursion, stack-safe
   trampolining, typed errors, lazy error construction, and sealed ADT design.
-version: 0.4.0
+version: 0.5.0
 repository: https://github.com/hakimjonas/rumil-dart
 topics:
   - parser

@@ -1,3 +1,7 @@
+## 0.5.0
+
+- Depends on `rumil_codec: ^0.5.0`, `rumil_parsers: ^0.5.0`. Version aligned.
+
 ## 0.4.0
 
 - Fix: `rumil_parsers` dev dependency uses version constraint (was path).

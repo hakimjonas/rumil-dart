@@ -1,3 +1,10 @@
+## 0.5.0
+
+- **New:** `dateTimeCodec` — microsecond precision, preserves UTC/local flag.
+- **New:** `bigIntCodec` — sign byte + varint length + big-endian magnitude bytes.
+- **New:** `enumCodec(values)` — maps enum variants to varint ordinals.
+- 85 tests (was 70).
+
 ## 0.4.0
 
 - Version aligned with rumil_parsers 0.4.0.
