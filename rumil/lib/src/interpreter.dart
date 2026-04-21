@@ -317,6 +317,9 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           loc,
         );
 
+      case GetPosition():
+        return Success<E, A>(state.offset as A, 0);
+
       case Mapped<E, dynamic, A>():
         return _runTrampoline<E, A>(p, state);
 

@@ -1,3 +1,7 @@
+## Unreleased
+
+- **New:** `position()` primitive — a zero-width parser that yields the current byte offset. Combines with `Zip` for span capture: `position().zip(p).zip(position())` gives `((start, value), end)` in one pass. Discovered as a gap while building Doxa on Rumil.
+
 ## 0.5.0
 
 **Interpreter optimizations and API refinements.**
