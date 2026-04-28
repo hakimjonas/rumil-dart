@@ -118,7 +118,7 @@ Parser<ParseError, void> eof() => const Eof<ParseError>();
 ///
 /// ```dart
 /// final spanned = position<E>().zip(myParser).zip(position<E>());
-/// // spanned produces (((int startOffset, A value), int endOffset))
+/// // produces (((int startOffset, A value), int endOffset))
 /// ```
 ///
 /// The offset is 0-indexed. Use [Location] (via `Location(input, offset)`)

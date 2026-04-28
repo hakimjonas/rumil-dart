@@ -1,6 +1,12 @@
-## Unreleased
+## 0.6.0
 
-- **New:** `position()` primitive — a zero-width parser that yields the current byte offset. Combines with `Zip` for span capture: `position().zip(p).zip(position())` gives `((start, value), end)` in one pass. Discovered as a gap while building Doxa on Rumil.
+Synchronized release across all rumil-dart packages. Additive for
+`rumil`.
+
+- `position()` primitive: a zero-width parser that yields the current
+  byte offset. Combines with `Zip` for span capture:
+  `position().zip(p).zip(position())` produces `((start, value), end)`
+  in one pass.
 
 ## 0.5.0
 

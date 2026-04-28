@@ -55,7 +55,6 @@ void main() {
     });
 
     test('position captures span around a parser', () {
-      // (start, value, end) for parsing "hello" at offset 2 in "  hello!".
       final spanned = spaces()
           .skipThen(position<ParseError>())
           .zip(string('hello'))
@@ -63,9 +62,9 @@ void main() {
       final r = spanned.run('  hello!');
       expect(r, isA<Success<ParseError, ((int, String), int)>>());
       final s = r as Success<ParseError, ((int, String), int)>;
-      expect(s.value.$1.$1, 2); // start
-      expect(s.value.$1.$2, 'hello'); // value
-      expect(s.value.$2, 7); // end (exclusive)
+      expect(s.value.$1.$1, 2);
+      expect(s.value.$1.$2, 'hello');
+      expect(s.value.$2, 7);
     });
   });
 
