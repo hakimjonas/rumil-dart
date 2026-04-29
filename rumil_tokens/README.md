@@ -1,5 +1,8 @@
 # rumil_tokens
 
+**Status: in-tree only. Not published to pub.dev.** Consumed via path
+dependency from other packages in the monorepo (e.g. `rem`).
+
 Source code tokenizer built on [Rumil](https://pub.dev/packages/rumil)
 parser combinators. Classifies source text into typed token spans:
 keywords, strings, comments, numbers, types, annotations, operators,
@@ -67,7 +70,7 @@ The `[start, end)` interval is half-open; spans are contiguous
 
 ## Grammar coverage
 
-Known limitations as of 0.6.0 (see `CHANGELOG.md`):
+Known limitations (see `CHANGELOG.md`):
 
 - YAML block scalars (`|`, `>`) tokenize the indented body as regular
   YAML content rather than one string literal.
