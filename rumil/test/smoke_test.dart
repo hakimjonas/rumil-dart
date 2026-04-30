@@ -42,6 +42,30 @@ void main() {
     test('eof fails with remaining input', () {
       expectFailure(eof().run('x'));
     });
+
+    test('position at start yields 0', () {
+      final r = position<ParseError>().run('abc');
+      expect(successValue(r), 0);
+      expect((r as Success<ParseError, int>).consumed, 0);
+    });
+
+    test('position after consumption yields offset', () {
+      final r = string('abc').skipThen(position<ParseError>()).run('abcdef');
+      expect(successValue(r), 3);
+    });
+
+    test('position captures span around a parser', () {
+      final spanned = spaces()
+          .skipThen(position<ParseError>())
+          .zip(string('hello'))
+          .zip(position<ParseError>());
+      final r = spanned.run('  hello!');
+      expect(r, isA<Success<ParseError, ((int, String), int)>>());
+      final s = r as Success<ParseError, ((int, String), int)>;
+      expect(s.value.$1.$1, 2);
+      expect(s.value.$1.$2, 'hello');
+      expect(s.value.$2, 7);
+    });
   });
 
   group('Composition', () {

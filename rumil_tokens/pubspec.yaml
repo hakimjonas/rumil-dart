@@ -1,0 +1,16 @@
+name: rumil_tokens
+description: >-
+  Source code tokenizer built on Rumil. Classified token spans for syntax
+  highlighting. In-tree within the rumil-dart monorepo; not published.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+
+dependencies:
+  rumil: ^0.6.0
+
+dev_dependencies:
+  test: ^1.31.0
+  lints: ^6.0.0

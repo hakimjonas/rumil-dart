@@ -112,6 +112,19 @@ Parser<ParseError, String> symbol(String s) => lexeme(string(s));
 /// Matches end of input.
 Parser<ParseError, void> eof() => const Eof<ParseError>();
 
+/// Succeeds without consuming input, yielding the current byte offset.
+///
+/// Combines with [Zip] to capture spans around a parser:
+///
+/// ```dart
+/// final spanned = position<E>().zip(myParser).zip(position<E>());
+/// // produces (((int startOffset, A value), int endOffset))
+/// ```
+///
+/// The offset is 0-indexed. Use [Location] (via `Location(input, offset)`)
+/// when converting to line/column.
+Parser<E, int> position<E>() => GetPosition<E>();
+
 /// Defers parser construction for recursive grammars.
 Parser<E, A> defer<E, A>(Parser<E, A> Function() thunk) => Defer<E, A>(thunk);
 

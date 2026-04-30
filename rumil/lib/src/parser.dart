@@ -99,6 +99,19 @@ final class Eof<E> extends Parser<E, void> {
   bool get isSimple => true;
 }
 
+/// Succeeds without consuming input, yielding the current byte offset.
+///
+/// Use via [position] in `primitives.dart`. Typically wrapped into span
+/// tracking: `position().zip(p).zip(position())` gives the start offset,
+/// the parsed value, and the end offset in one pass.
+final class GetPosition<E> extends Parser<E, int> {
+  /// Creates a position-reading parser.
+  const GetPosition();
+
+  @override
+  bool get isSimple => true;
+}
+
 // ---------------------------------------------------------------------------
 // Composition
 // ---------------------------------------------------------------------------

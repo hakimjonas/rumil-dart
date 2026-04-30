@@ -1,3 +1,8 @@
+## 0.6.0
+
+- Depends on `rumil: ^0.6.0`. Version aligned with the rumil-dart
+  monorepo 0.6.0 release. No functional changes in this package.
+
 ## 0.5.0
 
 - Depends on rumil ^0.5.0. Benefits from interpreter optimizations (5-9% AOT, 30-52% WasmGC).

@@ -1,3 +1,8 @@
+## 0.6.0
+
+- Depends on `rumil_codec: ^0.6.0`, `rumil_parsers: ^0.6.0`. Version
+  aligned with the rumil-dart monorepo 0.6.0 release.
+
 ## 0.5.0
 
 - Depends on `rumil_codec: ^0.5.0`, `rumil_parsers: ^0.5.0`. Version aligned.

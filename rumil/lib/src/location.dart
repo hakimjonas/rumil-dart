@@ -11,7 +11,7 @@ final class Location {
   /// 0-indexed byte offset from start of input.
   final int offset;
 
-  /// Creates a location at [offset] within [input].
+  /// Creates a location at [offset] within the given input string.
   const Location(this._input, this.offset);
 
   /// The start of input: line 1, column 1, offset 0.

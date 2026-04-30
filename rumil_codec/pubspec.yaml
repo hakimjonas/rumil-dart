@@ -2,7 +2,7 @@ name: rumil_codec
 description: >-
   Binary codec library for Dart with ZigZag/Varint encoding,
   composable BinaryCodec instances, and product type composition via records.
-version: 0.5.0
+version: 0.6.0
 repository: https://github.com/hakimjonas/rumil-dart
 topics:
   - codec
