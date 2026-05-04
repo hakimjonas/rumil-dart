@@ -546,4 +546,25 @@ final class Pratt<E, A> extends Parser<E, A> {
 
   /// Creates a Pratt parser node.
   const Pratt(this.nud, this.getOp, this.minBp, this.opTable);
+
+  /// Dispatch to the Pratt loop with type parameter [A] reified.
+  ///
+  /// The trampoline erases types to `dynamic` before calling back into
+  /// `interpretI`. If the Pratt case destructured fields there, `A` would be
+  /// `dynamic`, so `combine` would have type `dynamic Function(dynamic,
+  /// dynamic)` — incompatible with the user's `A Function(A, A)` under Dart's
+  /// function-argument contravariance. Routing through this instance method
+  /// preserves the receiver's generic parameter [A] at runtime.
+  ///
+  /// The callback receives the four fields with their precise types and
+  /// performs the actual Pratt interpretation.
+  Result<E, A> dispatchPratt(
+    Result<E, T> Function<T>(
+      Parser<E, T> nud,
+      Parser<E, PrattOp<T>> getOp,
+      int minBp,
+      PrattOpTable<T>? opTable,
+    )
+    run,
+  ) => run<A>(nud, getOp, minBp, opTable);
 }

@@ -192,21 +192,21 @@ Parser<ParseError, PrattOp<A>> _compileGetOp<A>(List<Operator<A>> ops) {
         branches.add(
           Mapped<ParseError, Object?, PrattOp<A>>(
             symbol,
-            (_) => PrattOpInfix.of<A>(bp, bp, fn),
+            (_) => PrattOpInfix<A>(bp, bp, fn),
           ),
         );
       case InfixRight<A>(:final symbol, :final bp, :final fn):
         branches.add(
           Mapped<ParseError, Object?, PrattOp<A>>(
             symbol,
-            (_) => PrattOpInfix.of<A>(bp, bp - 1, fn),
+            (_) => PrattOpInfix<A>(bp, bp - 1, fn),
           ),
         );
       case Postfix<A>(:final symbol, :final bp, :final fn):
         branches.add(
           Mapped<ParseError, Object?, PrattOp<A>>(
             symbol,
-            (_) => PrattOpPostfix.of<A>(bp, fn),
+            (_) => PrattOpPostfix<A>(bp, fn),
           ),
         );
       case Prefix<A>():
@@ -239,15 +239,15 @@ PrattOpTable<A>? _compileOpTable<A>(List<Operator<A>> ops) {
       case InfixLeft<A>(:final symbol, :final bp, :final fn):
         final c = charOf(symbol);
         if (c == null) return null;
-        pairs.add((c, PrattOpInfix.of<A>(bp, bp, fn)));
+        pairs.add((c, PrattOpInfix<A>(bp, bp, fn)));
       case InfixRight<A>(:final symbol, :final bp, :final fn):
         final c = charOf(symbol);
         if (c == null) return null;
-        pairs.add((c, PrattOpInfix.of<A>(bp, bp - 1, fn)));
+        pairs.add((c, PrattOpInfix<A>(bp, bp - 1, fn)));
       case Postfix<A>(:final symbol, :final bp, :final fn):
         final c = charOf(symbol);
         if (c == null) return null;
-        pairs.add((c, PrattOpPostfix.of<A>(bp, fn)));
+        pairs.add((c, PrattOpPostfix<A>(bp, fn)));
       case Prefix<A>():
         return null;
     }

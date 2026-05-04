@@ -579,8 +579,11 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         if (enableLR) return _interpretMemo<E, A>(inner, key, state);
         return _interpretSimpleMemo<E, A>(inner, key, state);
 
-      case Pratt<E, A>(:final nud, :final getOp, :final minBp, :final opTable):
-        return _interpretPratt<E, A>(nud, getOp, minBp, opTable, state);
+      case final Pratt<E, dynamic> pr:
+        return pr.dispatchPratt(
+          <T>(nud, getOp, minBp, opTable) =>
+              _interpretPratt<E, T>(nud, getOp, minBp, opTable, state),
+        ) as Result<E, A>;
 
       default:
         throw StateError('Unreachable: unhandled ${p.runtimeType}');
@@ -1054,34 +1057,21 @@ Result<E, A> _interpretPratt<E, A>(
   if (table != null) {
     while (true) {
       if (!state.hasChar) return Success<E, A>(lhs, totalConsumed);
-      final ch = state.currentChar.codeUnitAt(0);
-      final op = table.opAt(ch);
+      final op = table.opAt(state.currentChar.codeUnitAt(0));
       if (op == null) return Success<E, A>(lhs, totalConsumed);
-      if (op is PrattOpInfix<dynamic>) {
-        final infix = op as PrattOpInfix<dynamic>;
-        final lbp = infix.lbp;
-        final rbp = infix.rbp;
-        final combineFn = infix.combine;
-        if (lbp <= minBp) return Success<E, A>(lhs, totalConsumed);
-        state.advance();
-        final rhsResult = _interpretPratt<E, A>(
-          nud,
-          getOp,
-          rbp,
-          opTable,
-          state,
-        );
-        if (rhsResult is! Success<E, A>) return rhsResult;
-        lhs = Function.apply(combineFn, [lhs, rhsResult.value]) as A;
-        totalConsumed += 1 + rhsResult.consumed;
-      } else if (op is PrattOpPostfix<dynamic>) {
-        final postfix = op as PrattOpPostfix<dynamic>;
-        final bp = postfix.bp;
-        final applyFn = postfix.apply;
-        if (bp <= minBp) return Success<E, A>(lhs, totalConsumed);
-        state.advance();
-        lhs = Function.apply(applyFn, [lhs]) as A;
-        totalConsumed += 1;
+      switch (op) {
+        case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
+          if (lbp <= minBp) return Success<E, A>(lhs, totalConsumed);
+          state.advance();
+          final rhs = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
+          if (rhs is! Success<E, A>) return rhs;
+          lhs = combine(lhs, rhs.value);
+          totalConsumed += 1 + rhs.consumed;
+        case PrattOpPostfix<A>(:final bp, :final apply):
+          if (bp <= minBp) return Success<E, A>(lhs, totalConsumed);
+          state.advance();
+          lhs = apply(lhs);
+          totalConsumed += 1;
       }
     }
   }
@@ -1093,31 +1083,23 @@ Result<E, A> _interpretPratt<E, A>(
       state.restore(snapshot);
       return Success<E, A>(lhs, totalConsumed);
     }
-    final op = opResult.value;
-    final opConsumed = opResult.consumed;
-    if (op is PrattOpInfix<dynamic>) {
-      final infix = op as PrattOpInfix<dynamic>;
-      final lbp = infix.lbp;
-      final rbp = infix.rbp;
-      final combineFn = infix.combine;
-      if (lbp <= minBp) {
-        state.restore(snapshot);
-        return Success<E, A>(lhs, totalConsumed);
-      }
-      final rhsResult = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
-      if (rhsResult is! Success<E, A>) return rhsResult;
-      lhs = Function.apply(combineFn, [lhs, rhsResult.value]) as A;
-      totalConsumed += opConsumed + rhsResult.consumed;
-    } else if (op is PrattOpPostfix<dynamic>) {
-      final postfix = op as PrattOpPostfix<dynamic>;
-      final bp = postfix.bp;
-      final applyFn = postfix.apply;
-      if (bp <= minBp) {
-        state.restore(snapshot);
-        return Success<E, A>(lhs, totalConsumed);
-      }
-      lhs = Function.apply(applyFn, [lhs]) as A;
-      totalConsumed += opConsumed;
+    switch (opResult.value) {
+      case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
+        if (lbp <= minBp) {
+          state.restore(snapshot);
+          return Success<E, A>(lhs, totalConsumed);
+        }
+        final rhs = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
+        if (rhs is! Success<E, A>) return rhs;
+        lhs = combine(lhs, rhs.value);
+        totalConsumed += opResult.consumed + rhs.consumed;
+      case PrattOpPostfix<A>(:final bp, :final apply):
+        if (bp <= minBp) {
+          state.restore(snapshot);
+          return Success<E, A>(lhs, totalConsumed);
+        }
+        lhs = apply(lhs);
+        totalConsumed += opResult.consumed;
     }
   }
 }

@@ -17,12 +17,6 @@ sealed class PrattOp<A> {
 }
 
 /// Infix operator: binds `lhs op rhs` into a combined value.
-///
-/// The `combine` function is stored as `Function` (type-erased) to avoid
-/// Dart's function-contravariance cast failures when an interpreter routes
-/// through a type-erased trampoline. The public factory [infix] accepts the
-/// precise `A Function(A, A)` signature and stores it as `Function`; the
-/// interpreter invokes it via `Function.apply`.
 final class PrattOpInfix<A> extends PrattOp<A> {
   /// Left binding power (threshold for the Pratt loop to adopt this operator).
   final int lbp;
@@ -30,16 +24,11 @@ final class PrattOpInfix<A> extends PrattOp<A> {
   /// Right binding power (minBp for the RHS subparse).
   final int rbp;
 
-  /// Combines the left and right values (type-erased to avoid Dart's
-  /// function-contravariance cast failures when routed through a trampoline
-  /// typed at `dynamic`).
-  final Function combine;
+  /// Combines the left and right values into the operator's result.
+  final A Function(A, A) combine;
 
-  /// Creates an infix operator descriptor from a precise typed combiner.
-  static PrattOpInfix<A> of<A>(int lbp, int rbp, A Function(A, A) combine) =>
-      PrattOpInfix<A>._(lbp, rbp, combine);
-
-  const PrattOpInfix._(this.lbp, this.rbp, this.combine);
+  /// Creates an infix operator descriptor.
+  const PrattOpInfix(this.lbp, this.rbp, this.combine);
 }
 
 /// Postfix operator: binds to the accumulated LHS, no RHS needed.
@@ -47,14 +36,11 @@ final class PrattOpPostfix<A> extends PrattOp<A> {
   /// Binding power (threshold for the Pratt loop to adopt this operator).
   final int bp;
 
-  /// Transforms the LHS to produce the result (type-erased; see [PrattOpInfix.combine]).
-  final Function apply;
+  /// Transforms the LHS to produce the result.
+  final A Function(A) apply;
 
-  /// Creates a postfix operator descriptor from a precise typed transformer.
-  static PrattOpPostfix<A> of<A>(int bp, A Function(A) apply) =>
-      PrattOpPostfix<A>._(bp, apply);
-
-  const PrattOpPostfix._(this.bp, this.apply);
+  /// Creates a postfix operator descriptor.
+  const PrattOpPostfix(this.bp, this.apply);
 }
 
 /// Pre-compiled character-indexed operator dispatch table.
