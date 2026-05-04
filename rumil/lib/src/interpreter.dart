@@ -580,7 +580,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         return _interpretSimpleMemo<E, A>(inner, key, state);
 
       case final Pratt<E, dynamic> pr:
-        return pr.dispatchPratt(
+        return pr.interpretWith(
           <T>(nud, getOp, minBp, opTable) =>
               _interpretPratt<E, T>(nud, getOp, minBp, opTable, state),
         ) as Result<E, A>;
