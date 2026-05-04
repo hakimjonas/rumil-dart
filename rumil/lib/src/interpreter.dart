@@ -579,6 +579,9 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         if (enableLR) return _interpretMemo<E, A>(inner, key, state);
         return _interpretSimpleMemo<E, A>(inner, key, state);
 
+      case Pratt<E, A>(:final nud, :final getOp, :final minBp, :final opTable):
+        return _interpretPratt<E, A>(nud, getOp, minBp, opTable, state);
+
       default:
         throw StateError('Unreachable: unhandled ${p.runtimeType}');
     }
@@ -1018,6 +1021,105 @@ Result<E, A> _collectMany1<E, A>(
     totalConsumed++;
   }
   return Success<E, A>(acc as A, totalConsumed);
+}
+
+/// Pratt (Top-Down Operator Precedence) direct-recursion interpreter.
+///
+/// Parses `nud` to establish the LHS, then loops: consult `getOp` (or the
+/// pre-compiled [opTable] when non-null), and on each operator with sufficient
+/// binding power either recurse for RHS + fold (infix) or apply in place
+/// (postfix). Terminates when no operator binds tighter than `minBp`.
+///
+/// The `opTable` fast path avoids allocating Failure/error-thunk/Location per
+/// loop iteration: on a char-code miss or a low-bp match the loop exits
+/// without running the full `getOp` parser.
+///
+/// Encapsulated-mutation `while` loop — bounded by input length per postfix
+/// iteration, by recursive RHS depth per infix. Not stack-safe for unbounded
+/// right-associative chains; that would require a trampolined version. Current
+/// Dart consumers (lambe, rumil_expressions) use bounded operator trees.
+Result<E, A> _interpretPratt<E, A>(
+  Parser<E, A> nud,
+  Parser<E, PrattOp<A>> getOp,
+  int minBp,
+  PrattOpTable<A>? opTable,
+  ParserState state,
+) {
+  final initial = interpretI<E, A>(nud, state);
+  if (initial is! Success<E, A>) return initial;
+  var lhs = initial.value;
+  var totalConsumed = initial.consumed;
+
+  final table = opTable;
+  if (table != null) {
+    while (true) {
+      if (!state.hasChar) return Success<E, A>(lhs, totalConsumed);
+      final ch = state.currentChar.codeUnitAt(0);
+      final op = table.opAt(ch);
+      if (op == null) return Success<E, A>(lhs, totalConsumed);
+      if (op is PrattOpInfix<dynamic>) {
+        final infix = op as PrattOpInfix<dynamic>;
+        final lbp = infix.lbp;
+        final rbp = infix.rbp;
+        final combineFn = infix.combine;
+        if (lbp <= minBp) return Success<E, A>(lhs, totalConsumed);
+        state.advance();
+        final rhsResult = _interpretPratt<E, A>(
+          nud,
+          getOp,
+          rbp,
+          opTable,
+          state,
+        );
+        if (rhsResult is! Success<E, A>) return rhsResult;
+        lhs = Function.apply(combineFn, [lhs, rhsResult.value]) as A;
+        totalConsumed += 1 + rhsResult.consumed;
+      } else if (op is PrattOpPostfix<dynamic>) {
+        final postfix = op as PrattOpPostfix<dynamic>;
+        final bp = postfix.bp;
+        final applyFn = postfix.apply;
+        if (bp <= minBp) return Success<E, A>(lhs, totalConsumed);
+        state.advance();
+        lhs = Function.apply(applyFn, [lhs]) as A;
+        totalConsumed += 1;
+      }
+    }
+  }
+
+  while (true) {
+    final snapshot = state.save();
+    final opResult = interpretI<E, PrattOp<A>>(getOp, state);
+    if (opResult is! Success<E, PrattOp<A>>) {
+      state.restore(snapshot);
+      return Success<E, A>(lhs, totalConsumed);
+    }
+    final op = opResult.value;
+    final opConsumed = opResult.consumed;
+    if (op is PrattOpInfix<dynamic>) {
+      final infix = op as PrattOpInfix<dynamic>;
+      final lbp = infix.lbp;
+      final rbp = infix.rbp;
+      final combineFn = infix.combine;
+      if (lbp <= minBp) {
+        state.restore(snapshot);
+        return Success<E, A>(lhs, totalConsumed);
+      }
+      final rhsResult = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
+      if (rhsResult is! Success<E, A>) return rhsResult;
+      lhs = Function.apply(combineFn, [lhs, rhsResult.value]) as A;
+      totalConsumed += opConsumed + rhsResult.consumed;
+    } else if (op is PrattOpPostfix<dynamic>) {
+      final postfix = op as PrattOpPostfix<dynamic>;
+      final bp = postfix.bp;
+      final applyFn = postfix.apply;
+      if (bp <= minBp) {
+        state.restore(snapshot);
+        return Success<E, A>(lhs, totalConsumed);
+      }
+      lhs = Function.apply(applyFn, [lhs]) as A;
+      totalConsumed += opConsumed;
+    }
+  }
 }
 
 /// In-place string comparison without substring allocation.

@@ -3,8 +3,11 @@ library;
 
 import 'errors.dart';
 import 'memo.dart';
+import 'pratt_op.dart';
 import 'radix.dart';
 import 'result.dart';
+
+export 'pratt_op.dart';
 
 /// A parser that consumes input and produces a value of type [A],
 /// or fails with an error of type [E].
@@ -508,4 +511,39 @@ final class Memo<E, A> extends Parser<E, A> {
 
   /// Creates a memoized parser.
   const Memo(this.inner, this.key, {required this.enableLR});
+}
+
+/// Top-Down Operator Precedence (Pratt) parser node.
+///
+/// The evaluation loop parses `nud` to establish the LHS accumulator, then
+/// repeatedly consults `getOp` (or, when populated, a direct char dispatch
+/// via `opTable`) to decide whether to fold in another operator. Each
+/// infix operator adopted at `lbp > minBp` recurses for the RHS at `rbp`;
+/// each postfix operator at `bp > minBp` applies in place.
+///
+/// `minBp` is a construction-time parameter: set to 0 at the public entry
+/// point, and to `prefix.bp` when a prefix operator recursively builds an
+/// inner Pratt for its operand.
+///
+/// `opTable` is a speed/allocation shortcut populated by the public builder
+/// when every operator's symbol is a single-character parser. On a hit, the
+/// interpreter dispatches via a code-unit array lookup without running the
+/// general `getOp` parser.
+final class Pratt<E, A> extends Parser<E, A> {
+  /// Null-denotation: parses atoms and prefix operators.
+  final Parser<E, A> nud;
+
+  /// Operator-dispatch parser: returns a PrattOp and consumes the operator tokens.
+  final Parser<E, PrattOp<A>> getOp;
+
+  /// Current binding-power threshold; the loop terminates when no operator
+  /// has `lbp > minBp`.
+  final int minBp;
+
+  /// Pre-compiled char dispatch, if every operator has a single-char symbol.
+  /// Null means the interpreter must run `getOp`.
+  final PrattOpTable<A>? opTable;
+
+  /// Creates a Pratt parser node.
+  const Pratt(this.nud, this.getOp, this.minBp, this.opTable);
 }
