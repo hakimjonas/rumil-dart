@@ -55,9 +55,9 @@ void main() {
     });
 
     test('prefix unary minus: -5+3 = -2', () {
-      final p = pratt<int>(num, <Operator<int>>[
-        InfixLeft<int>(char('+'), 10, (a, b) => a + b),
-        Prefix<int>(char('-'), 40, (a) => -a),
+      final p = pratt<int>(num, [
+        InfixLeft(char('+'), 10, (int a, int b) => a + b),
+        Prefix(char('-'), 40, (int a) => -a),
       ]);
       expect(val(p.run('-5+3')), -2);
     });

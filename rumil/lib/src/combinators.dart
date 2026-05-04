@@ -221,14 +221,15 @@ Parser<ParseError, PrattOp<A>> _compileGetOp<A>(List<Operator<A>> ops) {
 /// direct code-unit dispatch table. Otherwise returns null; the interpreter
 /// falls back to running `getOp`.
 PrattOpTable<A>? _compileOpTable<A>(List<Operator<A>> ops) {
+  // `char(c)` constructs Satisfy with expected="'c'". Detect that exact
+  // shape so we can extract the intended character.
+  const apostrophe = 0x27;
   int? charOf(Parser<ParseError, Object?> p) {
-    if (p is Satisfy) {
-      final expected = p.expected;
-      if (expected.length == 3 &&
-          expected.codeUnitAt(0) == 0x27 && // '
-          expected.codeUnitAt(2) == 0x27) {
-        return expected.codeUnitAt(1);
-      }
+    if (p is Satisfy &&
+        p.expected.length == 3 &&
+        p.expected.codeUnitAt(0) == apostrophe &&
+        p.expected.codeUnitAt(2) == apostrophe) {
+      return p.expected.codeUnitAt(1);
     }
     return null;
   }
