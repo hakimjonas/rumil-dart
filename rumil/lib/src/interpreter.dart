@@ -330,6 +330,12 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         return _runTrampoline<E, A>(p, state);
 
       case Or<E, A>(:final left, :final right):
+        final synthesized = _firstFail<E, A>(left, state);
+        if (synthesized != null) {
+          final r2 = interpretI<E, A>(right, state);
+          if (r2 is! Failure<E, A>) return r2;
+          return _mergeFailures<E, A>(synthesized, r2);
+        }
         final simple = left.isSimple;
         final snapshot = simple ? 0 : state.save();
         final r1 = interpretI<E, A>(left, state);
@@ -337,12 +343,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         if (!simple) state.restore(snapshot);
         final r2 = interpretI<E, A>(right, state);
         if (r2 is! Failure<E, A>) return r2;
-        if (r1.furthest.offset > r2.furthest.offset) return r1;
-        if (r2.furthest.offset > r1.furthest.offset) return r2;
-        return Failure<E, A>(
-          () => [...r1.errorThunk(), ...r2.errorThunk()],
-          r1.furthest,
-        );
+        return _mergeFailures<E, A>(r1, r2);
 
       case Choice<E, A>(:final alternatives):
         return _interpretChoice<E, A>(alternatives, state);
@@ -1187,4 +1188,90 @@ bool _regionMatches(String input, int offset, String target) {
     if (input.codeUnitAt(offset + i) != target.codeUnitAt(i)) return false;
   }
   return true;
+}
+
+/// FIRST-set check for Or: if [p]'s leading token is decidable from the
+/// current char alone, peek and return a synthesized Failure when it cannot
+/// match; otherwise return null so the caller falls back to running [p].
+///
+/// This avoids the save/interpretI/restore round-trip on the left branch of
+/// a choice when a one-char lookahead already proves it will fail. The
+/// synthesized Failure carries the same errors the left branch would have
+/// produced, so error merging on both-fail is unchanged.
+///
+/// Handles terminals whose acceptance is a single-char predicate (Satisfy,
+/// StringMatch, StringChoice, Eof) and peels wrappers that don't change the
+/// leading char (Mapped/Zip-left/Named/Expect/LookAhead). Opaque cases
+/// (FlatMap, Defer thunks, Memo, etc.) return null.
+Failure<E, A>? _firstFail<E, A>(Parser<E, A> p, ParserState state) {
+  var node = p as Parser<dynamic, dynamic>;
+  while (true) {
+    switch (node) {
+      case Satisfy(:final pred, :final expected):
+        if (!state.hasChar) {
+          final loc = state.location;
+          return Failure<E, A>(() => [EndOfInput(expected, loc) as E], loc);
+        }
+        final c = state.currentChar;
+        if (pred(c)) return null;
+        final loc = state.location;
+        return Failure<E, A>(
+          () => [
+            Unexpected(c, {expected}, loc) as E,
+          ],
+          loc,
+        );
+
+      case StringMatch(:final target):
+        final len = target.length;
+        if (state.offset + len > state.input.length) {
+          final loc = state.location;
+          return Failure<E, A>(() => [EndOfInput('"$target"', loc) as E], loc);
+        }
+        if (state.input.codeUnitAt(state.offset) != target.codeUnitAt(0)) {
+          final loc = state.location;
+          final endOff = state.offset + len;
+          final found = state.input.substring(state.offset, endOff);
+          return Failure<E, A>(
+            () => [
+              Unexpected(found, {'"$target"'}, loc) as E,
+            ],
+            loc,
+          );
+        }
+        return null;
+
+      case Eof():
+        if (state.atEnd) return null;
+        final loc = state.location;
+        return Failure<E, A>(
+          () => [CustomError('Expected end of input', loc) as E],
+          loc,
+        );
+
+      case Mapped(:final source):
+        node = source;
+
+      case Zip(:final left):
+        node = left;
+
+      case LookAhead(:final parser):
+        node = parser;
+
+      default:
+        return null;
+    }
+  }
+}
+
+/// Merge two Failures, keeping the furthest location and combining error
+/// thunks. Preserves the invariant tested by `or merges errors from both
+/// branches when both fail at same offset`.
+Failure<E, A> _mergeFailures<E, A>(Failure<E, A> r1, Failure<E, A> r2) {
+  if (r1.furthest.offset > r2.furthest.offset) return r1;
+  if (r2.furthest.offset > r1.furthest.offset) return r2;
+  return Failure<E, A>(
+    () => [...r1.errorThunk(), ...r2.errorThunk()],
+    r1.furthest,
+  );
 }
