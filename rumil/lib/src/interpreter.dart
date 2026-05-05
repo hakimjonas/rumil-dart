@@ -524,22 +524,22 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           ),
         };
 
-      case Expect(:final parser, :final message):
-        final r = interpretI(parser, state);
-        if (r case final Failure<ParseError, dynamic> f) {
+      case Expect<A>(:final parser, :final message):
+        final r = interpretI<ParseError, A>(parser, state);
+        if (r is Failure<ParseError, A>) {
           return Failure<E, A>(
-            () => [CustomError(message, f.furthest) as E],
-            f.furthest,
+            () => [CustomError(message, r.furthest) as E],
+            r.furthest,
           );
         }
         return r as Result<E, A>;
 
-      case Named(:final parser, :final name):
-        final r = interpretI(parser, state);
-        if (r case final Failure<ParseError, dynamic> f) {
+      case Named<A>(:final parser, :final name):
+        final r = interpretI<ParseError, A>(parser, state);
+        if (r is Failure<ParseError, A>) {
           return Failure<E, A>(
             () =>
-                f.errorThunk().map((ParseError e) {
+                r.errorThunk().map((ParseError e) {
                   if (e is Unexpected) {
                     return Unexpected(e.found, {
                           ...e.expected,
@@ -549,7 +549,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
                   }
                   return e as E;
                 }).toList(),
-            f.furthest,
+            r.furthest,
           );
         }
         return r as Result<E, A>;
@@ -1133,23 +1133,42 @@ Result<E, A> _interpretPratt<E, A>(
 
   final table = opTable;
   if (table != null) {
+    final input = state.input;
+    final consumesWs = table.consumesTrailingWs;
     while (true) {
       if (!state.hasChar) return Success<E, A>(lhs, totalConsumed);
-      final op = table.opAt(state.currentChar.codeUnitAt(0));
-      if (op == null) return Success<E, A>(lhs, totalConsumed);
+      final bucket = table.entriesAt(input.codeUnitAt(state.offset));
+      if (bucket == null) return Success<E, A>(lhs, totalConsumed);
+
+      final matchOffset = state.offset;
+      PrattOpEntry<A>? matched;
+      for (final entry in bucket) {
+        if (_matchEntry(entry, input, matchOffset)) {
+          matched = entry;
+          break;
+        }
+      }
+      if (matched == null) return Success<E, A>(lhs, totalConsumed);
+
+      final op = matched.op;
+      final prefixLen = matched.prefix.length;
       switch (op) {
         case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
           if (lbp <= minBp) return Success<E, A>(lhs, totalConsumed);
-          state.advance();
+          state.advanceN(prefixLen);
+          final consumedBefore = prefixLen +
+              (consumesWs ? _skipAsciiWs(state) : 0);
           final rhs = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
           if (rhs is! Success<E, A>) return rhs;
           lhs = combine(lhs, rhs.value);
-          totalConsumed += 1 + rhs.consumed;
+          totalConsumed += consumedBefore + rhs.consumed;
         case PrattOpPostfix<A>(:final bp, :final apply):
           if (bp <= minBp) return Success<E, A>(lhs, totalConsumed);
-          state.advance();
+          state.advanceN(prefixLen);
+          final consumed = prefixLen +
+              (consumesWs ? _skipAsciiWs(state) : 0);
           lhs = apply(lhs);
-          totalConsumed += 1;
+          totalConsumed += consumed;
       }
     }
   }
@@ -1180,6 +1199,48 @@ Result<E, A> _interpretPratt<E, A>(
         totalConsumed += opResult.consumed;
     }
   }
+}
+
+/// Returns true if [entry]'s prefix matches [input] starting at [offset] and
+/// its guard (word boundary or not-followed-by) is satisfied.
+bool _matchEntry<A>(PrattOpEntry<A> entry, String input, int offset) {
+  final prefix = entry.prefix;
+  final prefixLen = prefix.length;
+  if (offset + prefixLen > input.length) return false;
+  for (var i = 0; i < prefixLen; i++) {
+    if (input.codeUnitAt(offset + i) != prefix.codeUnitAt(i)) return false;
+  }
+  final guard = entry.guard;
+  switch (guard) {
+    case TokenGuardNone():
+      return true;
+    case TokenGuardWordBoundary():
+      final after = offset + prefixLen;
+      if (after >= input.length) return true;
+      return !isIdentChar(input.codeUnitAt(after));
+    case TokenGuardNotFollowedByChar(:final codeUnit):
+      final after = offset + prefixLen;
+      if (after >= input.length) return true;
+      return input.codeUnitAt(after) != codeUnit;
+  }
+}
+
+/// Advances past ASCII whitespace (space, tab, CR, LF). Returns bytes skipped.
+int _skipAsciiWs(ParserState state) {
+  final input = state.input;
+  final len = input.length;
+  final start = state.offset;
+  var i = start;
+  while (i < len) {
+    final c = input.codeUnitAt(i);
+    if (c == 0x20 || c == 0x09 || c == 0x0D || c == 0x0A) {
+      i++;
+    } else {
+      break;
+    }
+  }
+  state.restoreTo(i);
+  return i - start;
 }
 
 /// In-place string comparison without substring allocation.

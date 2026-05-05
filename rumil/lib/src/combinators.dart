@@ -216,42 +216,177 @@ Parser<ParseError, PrattOp<A>> _compileGetOp<A>(List<Operator<A>> ops) {
   return branches.length == 1 ? branches.single : Choice(branches);
 }
 
-/// When every operator's symbol is a `char(c)` parser (detected by the
-/// `Satisfy(_, "'c'")` shape produced by the `char` primitive), build a
-/// direct code-unit dispatch table. Otherwise returns null; the interpreter
-/// falls back to running `getOp`.
-PrattOpTable<A>? _compileOpTable<A>(List<Operator<A>> ops) {
-  // `char(c)` constructs Satisfy with expected="'c'". Detect that exact
-  // shape so we can extract the intended character.
-  const apostrophe = 0x27;
-  int? charOf(Parser<ParseError, Object?> p) {
-    if (p is Satisfy &&
-        p.expected.length == 3 &&
-        p.expected.codeUnitAt(0) == apostrophe &&
-        p.expected.codeUnitAt(2) == apostrophe) {
-      return p.expected.codeUnitAt(1);
-    }
-    return null;
-  }
+/// Descriptor of an operator symbol's literal prefix plus a post-match guard.
+typedef _SymShape = ({String prefix, TokenGuard guard});
 
-  final pairs = <(int, PrattOp<A>)>[];
+/// When every operator's symbol can be reduced to a literal prefix (plus an
+/// optional word-boundary / not-followed-by guard), build a direct dispatch
+/// table keyed on the first code unit. Otherwise returns null; the
+/// interpreter falls back to running `getOp`.
+///
+/// Recognised shapes (in addition to `char(c)`):
+/// - `string(s)` / single-char `Satisfy` from `char(c)`
+/// - `_lex(string(s))` / `symbol(s)` — trailing ASCII whitespace
+/// - `_kw(kw)` — trailing word boundary
+/// - `_lex(string(s).thenSkip(char(x).notFollowedBy))` — ambiguity guard
+///
+/// Ops whose parsers drop into [Mapped]/[FlatMap]/[Defer] early return null,
+/// so downstream consumers only pay the table cost when it actually applies.
+PrattOpTable<A>? _compileOpTable<A>(List<Operator<A>> ops) {
+  var anyTrailingWs = false;
+
+  final pairs = <(int, PrattOpEntry<A>)>[];
   for (final op in ops) {
+    _SymShape? shape;
+    PrattOp<A>? desc;
     switch (op) {
       case InfixLeft<A>(:final symbol, :final bp, :final fn):
-        final c = charOf(symbol);
-        if (c == null) return null;
-        pairs.add((c, PrattOpInfix<A>(bp, bp, fn)));
+        shape = _symbolShape(symbol);
+        desc = PrattOpInfix<A>(bp, bp, fn);
       case InfixRight<A>(:final symbol, :final bp, :final fn):
-        final c = charOf(symbol);
-        if (c == null) return null;
-        pairs.add((c, PrattOpInfix<A>(bp, bp - 1, fn)));
+        shape = _symbolShape(symbol);
+        desc = PrattOpInfix<A>(bp, bp - 1, fn);
       case Postfix<A>(:final symbol, :final bp, :final fn):
-        final c = charOf(symbol);
-        if (c == null) return null;
-        pairs.add((c, PrattOpPostfix<A>(bp, fn)));
+        shape = _symbolShape(symbol);
+        desc = PrattOpPostfix<A>(bp, fn);
       case Prefix<A>():
         return null;
     }
+    if (shape == null) return null;
+    if (_isLexed(switch (op) {
+      InfixLeft<A>(:final symbol) => symbol,
+      InfixRight<A>(:final symbol) => symbol,
+      Postfix<A>(:final symbol) => symbol,
+      Prefix<A>() => throw StateError('unreachable'),
+    })) {
+      anyTrailingWs = true;
+    }
+    pairs.add((
+      shape.prefix.codeUnitAt(0),
+      PrattOpEntry<A>(shape.prefix, desc, guard: shape.guard),
+    ));
   }
-  return pairs.isEmpty ? null : PrattOpTable.fromPairs<A>(pairs);
+  return pairs.isEmpty
+      ? null
+      : PrattOpTable.fromEntries<A>(
+          pairs,
+          consumesTrailingWs: anyTrailingWs,
+        );
+}
+
+/// Extracts the literal prefix + post-match guard for a known operator
+/// symbol parser shape. Returns null if the shape is opaque.
+///
+/// Recognised shapes:
+/// - `char(c)` / `Satisfy` with an "'c'" expected string → 1-char prefix
+/// - `string(s)` / `StringMatch` → multi-char prefix, no guard
+/// - `p.thenSkip(q)` (Mapped(Zip(p, q))) — strip any `q` and recurse on `p`,
+///   composing guards from `q`:
+///     - `q` is trailing whitespace (`Many`/`Mapped(Many)`) → no guard
+///     - `q` is `char(x).notFollowedBy` → not-followed-by-x guard
+///     - `q` is `ident.notFollowedBy` → word-boundary guard
+///
+/// Opaque shapes (`FlatMap`, `Defer`, `Memo`, choice, etc.) return null.
+_SymShape? _symbolShape(Parser<ParseError, Object?> p) {
+  const apostrophe = 0x27;
+  if (p is Satisfy &&
+      p.expected.length == 3 &&
+      p.expected.codeUnitAt(0) == apostrophe &&
+      p.expected.codeUnitAt(2) == apostrophe) {
+    return (prefix: p.expected.substring(1, 2), guard: TokenGuard.none);
+  }
+  if (p is StringMatch) {
+    return (prefix: p.target, guard: TokenGuard.none);
+  }
+
+  // thenSkip(q) → Mapped(Zip(p, q)).
+  if (p is! Mapped<ParseError, dynamic, dynamic>) return null;
+  final inner = p.source;
+  if (inner is! Zip<ParseError, dynamic, dynamic>) return null;
+  final innerGuard = _skipGuard(inner.right);
+  if (innerGuard == null) return null;
+  final leftShape = _symbolShape(inner.left);
+  if (leftShape == null) return null;
+  final combined = _combineGuards(leftShape.guard, innerGuard);
+  if (combined == null) return null;
+  return (prefix: leftShape.prefix, guard: combined);
+}
+
+/// Decodes the `q` in `p.thenSkip(q)` into a guard contribution. Returns null
+/// when `q` is opaque so the caller can bail out.
+TokenGuard? _skipGuard(Parser<ParseError, Object?> q) {
+  // Trailing ASCII whitespace: Many(whitespace) or Mapped(Many(...)).
+  var candidate = q;
+  if (candidate is Mapped<ParseError, dynamic, dynamic>) {
+    candidate = candidate.source;
+  }
+  if (candidate is Many<ParseError, dynamic>) return TokenGuard.none;
+
+  if (q is NotFollowedBy) {
+    final guarded = q.parser;
+    const apostrophe = 0x27;
+    if (guarded is Satisfy &&
+        guarded.expected.length == 3 &&
+        guarded.expected.codeUnitAt(0) == apostrophe &&
+        guarded.expected.codeUnitAt(2) == apostrophe) {
+      return TokenGuard.notFollowedByChar(guarded.expected.codeUnitAt(1));
+    }
+    // An `Or` / `Choice` whose branches are all `Satisfy` is the idiomatic
+    // identifier-continuation check (`alphaNum | char('_')`). Treat it as a
+    // word-boundary guard. Any other shape is opaque — fall back.
+    if (_isIdentLikeClass(guarded)) return TokenGuard.wordBoundary;
+    return null;
+  }
+  return null;
+}
+
+/// True if [p] recognises a single ident-like character — either a direct
+/// [Satisfy] or an [Or]/[Choice] whose branches are all ident-like.
+bool _isIdentLikeClass(Parser<dynamic, dynamic> p) {
+  if (p is Satisfy) return true;
+  if (p is Or<dynamic, dynamic>) {
+    return _isIdentLikeClass(p.left) && _isIdentLikeClass(p.right);
+  }
+  if (p is Choice<dynamic, dynamic>) {
+    return p.alternatives.every(_isIdentLikeClass);
+  }
+  return false;
+}
+
+/// Combines two guards at the same match site. We only need a small lattice:
+/// - none + g → g
+/// - g + none → g
+/// - same guard twice → that guard
+/// Anything else (two distinct non-none guards on one op) is an unusual shape
+/// we don't try to encode; fall back to the slow path.
+TokenGuard? _combineGuards(TokenGuard a, TokenGuard b) {
+  if (a is TokenGuardNone) return b;
+  if (b is TokenGuardNone) return a;
+  if (a.runtimeType == b.runtimeType) {
+    if (a is TokenGuardNotFollowedByChar && b is TokenGuardNotFollowedByChar) {
+      if (a.codeUnit == b.codeUnit) return a;
+      return null;
+    }
+    return a;
+  }
+  return null;
+}
+
+/// True if [p] ends in a trailing-whitespace consumer, meaning the table
+/// should skip ASCII whitespace after the prefix match to keep the state
+/// aligned with what the (bypassed) parser would have done.
+///
+/// Recognises `p.thenSkip(Many(...))` and `p.thenSkip(Mapped(Many(...)))`.
+bool _isLexed(Parser<ParseError, Object?> p) {
+  if (p is! Mapped<ParseError, dynamic, dynamic>) return false;
+  final inner = p.source;
+  if (inner is! Zip<ParseError, dynamic, dynamic>) return false;
+  var right = inner.right;
+  if (right is Mapped<ParseError, dynamic, dynamic>) {
+    right = right.source;
+  }
+  if (right is Many<ParseError, dynamic>) return true;
+  // thenSkip nested once more (e.g. string.thenSkip(nfb).thenSkip(ws)).
+  final left = inner.left;
+  return _isLexed(left);
 }
