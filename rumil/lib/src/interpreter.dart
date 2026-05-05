@@ -363,6 +363,18 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
       case Many1<E, dynamic>(parser: final Satisfy s):
         return _collectMany1<E, A>(s.pred, s.expected, state);
 
+      case Many<E, dynamic>(parser: final StringMatch sm):
+        return _collectManyString<E, A>(sm.target, state);
+
+      case Many1<E, dynamic>(parser: final StringMatch sm):
+        return _collectMany1String<E, A>(sm.target, state);
+
+      case SkipMany<E, dynamic>(parser: final Satisfy s):
+        return _skipManySatisfy<E>(s.pred, state) as Result<E, A>;
+
+      case SkipMany<E, dynamic>(parser: final StringMatch sm):
+        return _skipManyString<E>(sm.target, state) as Result<E, A>;
+
       case final Many<E, dynamic> m:
         return m.interpretWith(
               <T>(Parser<E, T> inner) => _interpretMany<E, T>(inner, state),
@@ -1024,6 +1036,71 @@ Result<E, A> _collectMany1<E, A>(
     totalConsumed++;
   }
   return Success<E, A>(acc as A, totalConsumed);
+}
+
+/// Many(StringMatch) → collect target repetitions without per-iteration Failure.
+Result<E, A> _collectManyString<E, A>(String target, ParserState state) {
+  final acc = <String>[];
+  var totalConsumed = 0;
+  final input = state.input;
+  final len = target.length;
+  while (state.offset + len <= input.length &&
+      _regionMatches(input, state.offset, target)) {
+    acc.add(target);
+    state.advanceByString(target);
+    totalConsumed += len;
+  }
+  return Success<E, A>(acc as A, totalConsumed);
+}
+
+/// Many1(StringMatch) → collect target repetitions, require at least one.
+Result<E, A> _collectMany1String<E, A>(String target, ParserState state) {
+  final input = state.input;
+  final len = target.length;
+  if (state.offset + len > input.length ||
+      !_regionMatches(input, state.offset, target)) {
+    final loc = state.location;
+    if (state.hasChar) {
+      final endOff = state.offset + len <= input.length
+          ? state.offset + len
+          : input.length;
+      final found = input.substring(state.offset, endOff);
+      return Failure<E, A>(
+        () => [
+          Unexpected(found, {'"$target"'}, loc) as E,
+        ],
+        loc,
+      );
+    }
+    return Failure<E, A>(() => [EndOfInput('"$target"', loc) as E], loc);
+  }
+  return _collectManyString<E, A>(target, state);
+}
+
+/// SkipMany(Satisfy) → advance while predicate matches, no allocation.
+Result<E, void> _skipManySatisfy<E>(
+  bool Function(String) pred,
+  ParserState state,
+) {
+  var totalConsumed = 0;
+  while (state.hasChar && pred(state.currentChar)) {
+    state.advance();
+    totalConsumed++;
+  }
+  return Success<E, void>(null, totalConsumed);
+}
+
+/// SkipMany(StringMatch) → advance while target matches, no allocation.
+Result<E, void> _skipManyString<E>(String target, ParserState state) {
+  final input = state.input;
+  final len = target.length;
+  var totalConsumed = 0;
+  while (state.offset + len <= input.length &&
+      _regionMatches(input, state.offset, target)) {
+    state.advanceByString(target);
+    totalConsumed += len;
+  }
+  return Success<E, void>(null, totalConsumed);
 }
 
 /// Pratt (Top-Down Operator Precedence) direct-recursion interpreter.
