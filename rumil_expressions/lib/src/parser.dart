@@ -1,4 +1,6 @@
-/// Expression parser. Operator precedence is handled by layered `chainl1` calls.
+/// Expression parser. Operator precedence is handled by a single `pratt`
+/// combinator: prefix unary operators, six levels of binary operators with
+/// binding powers, and a ternary conditional layered on top.
 library;
 
 import 'package:rumil/rumil.dart';
@@ -77,52 +79,43 @@ final Parser<ParseError, Expr> _functionCall = _identifier.flatMap(
       ),
 );
 
-// ---- Unary ----
+// ---- Operators (Pratt) ----
+//
+// Single Pratt parse covers prefix unary `-`/`!` and six precedence levels
+// of binary operators. Higher binding power binds tighter. The conditional
+// `? :` is layered above Pratt because its shape (LHS `?` THEN `:` ELSE)
+// needs a flatMap to express the two-branch lookahead.
 
-final Parser<ParseError, Expr> _unary =
-    (_sym('-').as('-') | _sym('!').as('!')).flatMap(
-      (op) =>
-          defer(() => _unary).map((operand) => UnaryOp(op, operand) as Expr),
-    ) |
-    _primary;
+Expr _binOp(String op, Expr a, Expr b) => BinaryOp(op, a, b);
 
-// ---- Binary operators (chainl1 per precedence level) ----
-
-Parser<ParseError, Expr Function(Expr, Expr)> _binOp(String op) =>
-    _sym(op).as<Expr Function(Expr, Expr)>((l, r) => BinaryOp(op, l, r));
-
-Parser<ParseError, Expr Function(Expr, Expr)> _binOps(List<String> ops) {
-  var p = _binOp(ops.first);
-  for (var i = 1; i < ops.length; i++) {
-    p = p | _binOp(ops[i]);
-  }
-  return p;
-}
-
-final Parser<ParseError, Expr> _multiplicative = _unary.chainl1(
-  _binOps(['*', '/', '%']),
-);
-
-final Parser<ParseError, Expr> _additive = _multiplicative.chainl1(
-  _binOps(['+', '-']),
-);
-
-final Parser<ParseError, Expr> _comparison = () {
-  final ops = _binOp('<=') | _binOp('>=') | _binOp('<') | _binOp('>');
-  return _additive.chainl1(ops);
-}();
-
-final Parser<ParseError, Expr> _equality = _comparison.chainl1(
-  _binOps(['==', '!=']),
-);
-
-final Parser<ParseError, Expr> _logicAnd = _equality.chainl1(_binOp('&&'));
-
-final Parser<ParseError, Expr> _logicOr = _logicAnd.chainl1(_binOp('||'));
+final Parser<ParseError, Expr> _operators = pratt<Expr>(_primary, [
+  // Logical OR (lowest precedence).
+  InfixLeft(_sym('||'), 10, (Expr a, Expr b) => _binOp('||', a, b)),
+  // Logical AND.
+  InfixLeft(_sym('&&'), 20, (Expr a, Expr b) => _binOp('&&', a, b)),
+  // Equality.
+  InfixLeft(_sym('=='), 30, (Expr a, Expr b) => _binOp('==', a, b)),
+  InfixLeft(_sym('!='), 30, (Expr a, Expr b) => _binOp('!=', a, b)),
+  // Comparison.
+  InfixLeft(_sym('<='), 40, (Expr a, Expr b) => _binOp('<=', a, b)),
+  InfixLeft(_sym('>='), 40, (Expr a, Expr b) => _binOp('>=', a, b)),
+  InfixLeft(_sym('<'), 40, (Expr a, Expr b) => _binOp('<', a, b)),
+  InfixLeft(_sym('>'), 40, (Expr a, Expr b) => _binOp('>', a, b)),
+  // Additive.
+  InfixLeft(_sym('+'), 50, (Expr a, Expr b) => _binOp('+', a, b)),
+  InfixLeft(_sym('-'), 50, (Expr a, Expr b) => _binOp('-', a, b)),
+  // Multiplicative.
+  InfixLeft(_sym('*'), 60, (Expr a, Expr b) => _binOp('*', a, b)),
+  InfixLeft(_sym('/'), 60, (Expr a, Expr b) => _binOp('/', a, b)),
+  InfixLeft(_sym('%'), 60, (Expr a, Expr b) => _binOp('%', a, b)),
+  // Prefix unary (highest precedence).
+  Prefix(_sym('-'), 70, (Expr e) => UnaryOp('-', e)),
+  Prefix(_sym('!'), 70, (Expr e) => UnaryOp('!', e)),
+]);
 
 // ---- Conditional ----
 
-final Parser<ParseError, Expr> _conditional = _logicOr.flatMap(
+final Parser<ParseError, Expr> _conditional = _operators.flatMap(
   (cond) => (_sym('?')
       .skipThen(defer(() => _expr))
       .flatMap(

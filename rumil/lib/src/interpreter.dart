@@ -330,6 +330,12 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         return _runTrampoline<E, A>(p, state);
 
       case Or<E, A>(:final left, :final right):
+        final synthesized = _firstFail<E, A>(left, state);
+        if (synthesized != null) {
+          final r2 = interpretI<E, A>(right, state);
+          if (r2 is! Failure<E, A>) return r2;
+          return _mergeFailures<E, A>(synthesized, r2);
+        }
         final simple = left.isSimple;
         final snapshot = simple ? 0 : state.save();
         final r1 = interpretI<E, A>(left, state);
@@ -337,12 +343,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         if (!simple) state.restore(snapshot);
         final r2 = interpretI<E, A>(right, state);
         if (r2 is! Failure<E, A>) return r2;
-        if (r1.furthest.offset > r2.furthest.offset) return r1;
-        if (r2.furthest.offset > r1.furthest.offset) return r2;
-        return Failure<E, A>(
-          () => [...r1.errorThunk(), ...r2.errorThunk()],
-          r1.furthest,
-        );
+        return _mergeFailures<E, A>(r1, r2);
 
       case Choice<E, A>(:final alternatives):
         return _interpretChoice<E, A>(alternatives, state);
@@ -362,6 +363,18 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
 
       case Many1<E, dynamic>(parser: final Satisfy s):
         return _collectMany1<E, A>(s.pred, s.expected, state);
+
+      case Many<E, dynamic>(parser: final StringMatch sm):
+        return _collectManyString<E, A>(sm.target, state);
+
+      case Many1<E, dynamic>(parser: final StringMatch sm):
+        return _collectMany1String<E, A>(sm.target, state);
+
+      case SkipMany<E, dynamic>(parser: final Satisfy s):
+        return _skipManySatisfy<E>(s.pred, state) as Result<E, A>;
+
+      case SkipMany<E, dynamic>(parser: final StringMatch sm):
+        return _skipManyString<E>(sm.target, state) as Result<E, A>;
 
       case final Many<E, dynamic> m:
         return m.interpretWith(
@@ -388,6 +401,18 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
       case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
         return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
             as Result<E, A>;
+
+      case final Chainl1<E, A> ch:
+        return ch.interpretWith(
+          <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
+              _interpretChainl1<E, T>(elt, op, state),
+        );
+
+      case final Chainr1<E, A> ch:
+        return ch.interpretWith(
+          <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
+              _interpretChainr1<E, T>(elt, op, state),
+        );
 
       case final Capture<E, dynamic> cap:
         return cap.interpretWith((inner) {
@@ -511,22 +536,22 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           ),
         };
 
-      case Expect(:final parser, :final message):
-        final r = interpretI(parser, state);
-        if (r case final Failure<ParseError, dynamic> f) {
+      case Expect<A>(:final parser, :final message):
+        final r = interpretI<ParseError, A>(parser, state);
+        if (r is Failure<ParseError, A>) {
           return Failure<E, A>(
-            () => [CustomError(message, f.furthest) as E],
-            f.furthest,
+            () => [CustomError(message, r.furthest) as E],
+            r.furthest,
           );
         }
         return r as Result<E, A>;
 
-      case Named(:final parser, :final name):
-        final r = interpretI(parser, state);
-        if (r case final Failure<ParseError, dynamic> f) {
+      case Named<A>(:final parser, :final name):
+        final r = interpretI<ParseError, A>(parser, state);
+        if (r is Failure<ParseError, A>) {
           return Failure<E, A>(
             () =>
-                f.errorThunk().map((ParseError e) {
+                r.errorThunk().map((ParseError e) {
                   if (e is Unexpected) {
                     return Unexpected(e.found, {
                           ...e.expected,
@@ -536,7 +561,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
                   }
                   return e as E;
                 }).toList(),
-            f.furthest,
+            r.furthest,
           );
         }
         return r as Result<E, A>;
@@ -578,6 +603,18 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
       case Memo<E, A>(:final inner, :final key, :final enableLR):
         if (enableLR) return _interpretMemo<E, A>(inner, key, state);
         return _interpretSimpleMemo<E, A>(inner, key, state);
+
+      case final Pratt<E, dynamic> pr:
+        return pr.interpretWith(
+          <T>(atom, prefixes, getOp, minBp, opTable) => _interpretPratt<E, T>(
+            atom,
+            prefixes,
+            getOp,
+            minBp,
+            opTable,
+            state,
+          ),
+        ) as Result<E, A>;
 
       default:
         throw StateError('Unreachable: unhandled ${p.runtimeType}');
@@ -1020,10 +1057,501 @@ Result<E, A> _collectMany1<E, A>(
   return Success<E, A>(acc as A, totalConsumed);
 }
 
+/// Many(StringMatch) → collect target repetitions without per-iteration Failure.
+Result<E, A> _collectManyString<E, A>(String target, ParserState state) {
+  final acc = <String>[];
+  var totalConsumed = 0;
+  final input = state.input;
+  final len = target.length;
+  while (state.offset + len <= input.length &&
+      _regionMatches(input, state.offset, target)) {
+    acc.add(target);
+    state.advanceByString(target);
+    totalConsumed += len;
+  }
+  return Success<E, A>(acc as A, totalConsumed);
+}
+
+/// Many1(StringMatch) → collect target repetitions, require at least one.
+Result<E, A> _collectMany1String<E, A>(String target, ParserState state) {
+  final input = state.input;
+  final len = target.length;
+  if (state.offset + len > input.length ||
+      !_regionMatches(input, state.offset, target)) {
+    final loc = state.location;
+    if (state.hasChar) {
+      final endOff = state.offset + len <= input.length
+          ? state.offset + len
+          : input.length;
+      final found = input.substring(state.offset, endOff);
+      return Failure<E, A>(
+        () => [
+          Unexpected(found, {'"$target"'}, loc) as E,
+        ],
+        loc,
+      );
+    }
+    return Failure<E, A>(() => [EndOfInput('"$target"', loc) as E], loc);
+  }
+  return _collectManyString<E, A>(target, state);
+}
+
+/// SkipMany(Satisfy) → advance while predicate matches, no allocation.
+Result<E, void> _skipManySatisfy<E>(
+  bool Function(String) pred,
+  ParserState state,
+) {
+  var totalConsumed = 0;
+  while (state.hasChar && pred(state.currentChar)) {
+    state.advance();
+    totalConsumed++;
+  }
+  return Success<E, void>(null, totalConsumed);
+}
+
+/// SkipMany(StringMatch) → advance while target matches, no allocation.
+Result<E, void> _skipManyString<E>(String target, ParserState state) {
+  final input = state.input;
+  final len = target.length;
+  var totalConsumed = 0;
+  while (state.offset + len <= input.length &&
+      _regionMatches(input, state.offset, target)) {
+    state.advanceByString(target);
+    totalConsumed += len;
+  }
+  return Success<E, void>(null, totalConsumed);
+}
+
+/// chainl1: parse `p`, then loop on `(op p)`. On op-or-p failure backtrack
+/// to the iteration start and return the accumulated lhs. Mirrors the
+/// recursive `Or(FlatMap(op,FlatMap(p,...)), Succeed(acc))` definition's
+/// semantics — any soft failure stops the chain — but iteratively, so
+/// chain depth does not consume Dart call frames.
+Result<E, A> _interpretChainl1<E, A>(
+  Parser<E, A> p,
+  Parser<E, A Function(A, A)> op,
+  ParserState state,
+) {
+  final first = interpretI<E, A>(p, state);
+  if (first is! Success<E, A>) return first;
+  var lhs = first.value;
+  var totalConsumed = first.consumed;
+
+  while (true) {
+    final snapshot = state.save();
+    final opR = interpretI<E, A Function(A, A)>(op, state);
+    if (opR is! Success<E, A Function(A, A)>) {
+      state.restore(snapshot);
+      return Success<E, A>(lhs, totalConsumed);
+    }
+    final rhs = interpretI<E, A>(p, state);
+    if (rhs is! Success<E, A>) {
+      state.restore(snapshot);
+      return Success<E, A>(lhs, totalConsumed);
+    }
+    lhs = opR.value(lhs, rhs.value);
+    totalConsumed += opR.consumed + rhs.consumed;
+  }
+}
+
+/// chainr1: parse all elements and operators iteratively, then fold right
+/// at the end. The fold itself is a tight loop over the collected lists,
+/// so chain depth does not consume Dart call frames.
+Result<E, A> _interpretChainr1<E, A>(
+  Parser<E, A> p,
+  Parser<E, A Function(A, A)> op,
+  ParserState state,
+) {
+  final first = interpretI<E, A>(p, state);
+  if (first is! Success<E, A>) return first;
+  final values = <A>[first.value];
+  final ops = <A Function(A, A)>[];
+  var totalConsumed = first.consumed;
+
+  while (true) {
+    final snapshot = state.save();
+    final opR = interpretI<E, A Function(A, A)>(op, state);
+    if (opR is! Success<E, A Function(A, A)>) {
+      state.restore(snapshot);
+      break;
+    }
+    final rhs = interpretI<E, A>(p, state);
+    if (rhs is! Success<E, A>) {
+      state.restore(snapshot);
+      break;
+    }
+    ops.add(opR.value);
+    values.add(rhs.value);
+    totalConsumed += opR.consumed + rhs.consumed;
+  }
+
+  // Right fold: a op (b op (c op d)).
+  var acc = values.last;
+  for (var i = values.length - 2; i >= 0; i--) {
+    acc = ops[i](values[i], acc);
+  }
+  return Success<E, A>(acc, totalConsumed);
+}
+
+/// Frame on the Pratt operator stack: a pending operation waiting for the
+/// in-flight nud subparse to produce a value. On completion the frame is
+/// popped and either combined with [savedLhs] (infix) or applied to lhs
+/// alone (prefix). [outerMinBp] is the minBp threshold of the surrounding
+/// scope, restored when the frame pops.
+sealed class _PrattFrame<A> {
+  const _PrattFrame();
+  int get outerMinBp;
+}
+
+final class _PrattInfixFrame<A> extends _PrattFrame<A> {
+  final A savedLhs;
+  final A Function(A, A) combine;
+  @override
+  final int outerMinBp;
+  const _PrattInfixFrame(this.savedLhs, this.combine, this.outerMinBp);
+}
+
+final class _PrattPrefixFrame<A> extends _PrattFrame<A> {
+  final A Function(A) apply;
+  @override
+  final int outerMinBp;
+  const _PrattPrefixFrame(this.apply, this.outerMinBp);
+}
+
+/// Pratt (Top-Down Operator Precedence) iterative interpreter.
+///
+/// Maintains an explicit operator stack so unbounded right-associative
+/// chains (`a^b^c^…`) and prefix chains (`---5`) do not consume Dart call
+/// frames. Two phases keyed by `lhsValid`:
+///
+/// - PARSE_NUD: try each prefix in [prefixes]; on a hit, push a
+///   [_PrattPrefixFrame] and re-enter PARSE_NUD with the prefix's bp as
+///   the new minBp. On a miss-of-all, run [atom] to obtain the lhs and
+///   transition to LOOP_OPS.
+/// - LOOP_OPS: peek the next operator (via [opTable] when available, else
+///   the general [getOp] parser). On infix at lbp > minBp, push a
+///   [_PrattInfixFrame] and transition to PARSE_NUD with rbp as the new
+///   minBp. On postfix at bp > minBp, apply in place and continue. On no
+///   match or low-bp, pop a single frame: combine (infix) or apply
+///   (prefix), restore [outerMinBp], and stay in LOOP_OPS.
+///
+/// The opTable fast path avoids allocating Failure/error-thunk/Location
+/// per iteration when every operator has a literal-prefix symbol.
+Result<E, A> _interpretPratt<E, A>(
+  Parser<E, A> atom,
+  List<PrattPrefix<E, A>> prefixes,
+  Parser<E, PrattOp<A>> getOp,
+  int initialMinBp,
+  PrattOpTable<A>? opTable,
+  ParserState state,
+) {
+  final stack = <_PrattFrame<A>>[];
+  final table = opTable;
+  final input = state.input;
+  final consumesWs = table?.consumesTrailingWs ?? false;
+  var minBp = initialMinBp;
+  var totalConsumed = 0;
+
+  late A lhs;
+  var lhsValid = false;
+
+  outer:
+  while (true) {
+    if (!lhsValid) {
+      // PARSE_NUD: try prefixes (each pushes a frame and re-loops),
+      // then fall through to atom.
+      var matchedPrefix = false;
+      for (final pre in prefixes) {
+        final snapshot = state.save();
+        final r = interpretI<E, Object?>(pre.symbol, state);
+        if (r is Success<E, Object?>) {
+          stack.add(_PrattPrefixFrame<A>(pre.fn, minBp));
+          minBp = pre.bp;
+          totalConsumed += r.consumed;
+          matchedPrefix = true;
+          break;
+        }
+        state.restore(snapshot);
+      }
+      if (matchedPrefix) continue outer;
+
+      final atomR = interpretI<E, A>(atom, state);
+      if (atomR is! Success<E, A>) return atomR;
+      lhs = atomR.value;
+      totalConsumed += atomR.consumed;
+      lhsValid = true;
+    }
+
+    // LOOP_OPS: try to extend lhs with the next operator.
+    if (table != null) {
+      if (!state.hasChar) {
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
+      final bucket = table.entriesAt(input.codeUnitAt(state.offset));
+      if (bucket == null) {
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
+
+      final matchOffset = state.offset;
+      PrattOpEntry<A>? matched;
+      for (final entry in bucket) {
+        if (_matchEntry(entry, input, matchOffset)) {
+          matched = entry;
+          break;
+        }
+      }
+      if (matched == null) {
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
+
+      final op = matched.op;
+      final prefixLen = matched.prefix.length;
+      switch (op) {
+        case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
+          if (lbp <= minBp) {
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
+          state.advanceN(prefixLen);
+          totalConsumed += prefixLen +
+              (consumesWs ? _skipAsciiWs(state) : 0);
+          stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
+          minBp = rbp;
+          lhsValid = false;
+          continue outer;
+        case PrattOpPostfix<A>(:final bp, :final apply):
+          if (bp <= minBp) {
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
+          state.advanceN(prefixLen);
+          totalConsumed += prefixLen +
+              (consumesWs ? _skipAsciiWs(state) : 0);
+          lhs = apply(lhs);
+      }
+    } else {
+      final snapshot = state.save();
+      final opResult = interpretI<E, PrattOp<A>>(getOp, state);
+      if (opResult is! Success<E, PrattOp<A>>) {
+        state.restore(snapshot);
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
+      switch (opResult.value) {
+        case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
+          if (lbp <= minBp) {
+            state.restore(snapshot);
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
+          totalConsumed += opResult.consumed;
+          stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
+          minBp = rbp;
+          lhsValid = false;
+          continue outer;
+        case PrattOpPostfix<A>(:final bp, :final apply):
+          if (bp <= minBp) {
+            state.restore(snapshot);
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
+          totalConsumed += opResult.consumed;
+          lhs = apply(lhs);
+      }
+    }
+  }
+}
+
+/// Result of applying a single popped frame to the current `lhs`. Returned
+/// as a record so callers can update both the lhs accumulator and the minBp
+/// threshold in one assignment.
+typedef _PoppedFrame<A> = ({A lhs, int outerMinBp});
+
+/// Combines (infix) or applies (prefix) [frame] to [lhs] and returns the
+/// updated lhs together with the frame's outerMinBp.
+_PoppedFrame<A> _applyFrame<A>(_PrattFrame<A> frame, A lhs) =>
+    switch (frame) {
+      _PrattInfixFrame<A>(:final savedLhs, :final combine, :final outerMinBp) =>
+        (lhs: combine(savedLhs, lhs), outerMinBp: outerMinBp),
+      _PrattPrefixFrame<A>(:final apply, :final outerMinBp) =>
+        (lhs: apply(lhs), outerMinBp: outerMinBp),
+    };
+
+/// Returns true if [entry]'s prefix matches [input] starting at [offset] and
+/// its guard (word boundary or not-followed-by) is satisfied.
+bool _matchEntry<A>(PrattOpEntry<A> entry, String input, int offset) {
+  final prefix = entry.prefix;
+  final prefixLen = prefix.length;
+  if (offset + prefixLen > input.length) return false;
+  for (var i = 0; i < prefixLen; i++) {
+    if (input.codeUnitAt(offset + i) != prefix.codeUnitAt(i)) return false;
+  }
+  final guard = entry.guard;
+  switch (guard) {
+    case TokenGuardNone():
+      return true;
+    case TokenGuardWordBoundary():
+      final after = offset + prefixLen;
+      if (after >= input.length) return true;
+      return !isIdentChar(input.codeUnitAt(after));
+    case TokenGuardNotFollowedByChar(:final codeUnit):
+      final after = offset + prefixLen;
+      if (after >= input.length) return true;
+      return input.codeUnitAt(after) != codeUnit;
+  }
+}
+
+/// Advances past ASCII whitespace (space, tab, CR, LF). Returns bytes skipped.
+int _skipAsciiWs(ParserState state) {
+  final input = state.input;
+  final len = input.length;
+  final start = state.offset;
+  var i = start;
+  while (i < len) {
+    final c = input.codeUnitAt(i);
+    if (c == 0x20 || c == 0x09 || c == 0x0D || c == 0x0A) {
+      i++;
+    } else {
+      break;
+    }
+  }
+  state.restoreTo(i);
+  return i - start;
+}
+
 /// In-place string comparison without substring allocation.
 bool _regionMatches(String input, int offset, String target) {
   for (var i = 0; i < target.length; i++) {
     if (input.codeUnitAt(offset + i) != target.codeUnitAt(i)) return false;
   }
   return true;
+}
+
+/// FIRST-set check for Or: if [p]'s leading token is decidable from the
+/// current char alone, peek and return a synthesized Failure when it cannot
+/// match; otherwise return null so the caller falls back to running [p].
+///
+/// This avoids the save/interpretI/restore round-trip on the left branch of
+/// a choice when a one-char lookahead already proves it will fail. The
+/// synthesized Failure carries the same errors the left branch would have
+/// produced, so error merging on both-fail is unchanged.
+///
+/// Handles terminals whose acceptance is a single-char predicate (Satisfy,
+/// StringMatch, StringChoice, Eof) and peels wrappers that don't change the
+/// leading char (Mapped/Zip-left/Named/Expect/LookAhead). Opaque cases
+/// (FlatMap, Defer thunks, Memo, etc.) return null.
+Failure<E, A>? _firstFail<E, A>(Parser<E, A> p, ParserState state) {
+  var node = p as Parser<dynamic, dynamic>;
+  while (true) {
+    switch (node) {
+      case Satisfy(:final pred, :final expected):
+        if (!state.hasChar) {
+          final loc = state.location;
+          return Failure<E, A>(() => [EndOfInput(expected, loc) as E], loc);
+        }
+        final c = state.currentChar;
+        if (pred(c)) return null;
+        final loc = state.location;
+        return Failure<E, A>(
+          () => [
+            Unexpected(c, {expected}, loc) as E,
+          ],
+          loc,
+        );
+
+      case StringMatch(:final target):
+        final len = target.length;
+        if (state.offset + len > state.input.length) {
+          final loc = state.location;
+          return Failure<E, A>(() => [EndOfInput('"$target"', loc) as E], loc);
+        }
+        if (state.input.codeUnitAt(state.offset) != target.codeUnitAt(0)) {
+          final loc = state.location;
+          final endOff = state.offset + len;
+          final found = state.input.substring(state.offset, endOff);
+          return Failure<E, A>(
+            () => [
+              Unexpected(found, {'"$target"'}, loc) as E,
+            ],
+            loc,
+          );
+        }
+        return null;
+
+      case Eof():
+        if (state.atEnd) return null;
+        final loc = state.location;
+        return Failure<E, A>(
+          () => [CustomError('Expected end of input', loc) as E],
+          loc,
+        );
+
+      case Mapped(:final source):
+        node = source;
+
+      case Zip(:final left):
+        node = left;
+
+      case LookAhead(:final parser):
+        node = parser;
+
+      default:
+        return null;
+    }
+  }
+}
+
+/// Merge two Failures, keeping the furthest location and combining error
+/// thunks. Preserves the invariant tested by `or merges errors from both
+/// branches when both fail at same offset`.
+Failure<E, A> _mergeFailures<E, A>(Failure<E, A> r1, Failure<E, A> r2) {
+  if (r1.furthest.offset > r2.furthest.offset) return r1;
+  if (r2.furthest.offset > r1.furthest.offset) return r2;
+  return Failure<E, A>(
+    () => [...r1.errorThunk(), ...r2.errorThunk()],
+    r1.furthest,
+  );
 }
