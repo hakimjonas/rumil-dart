@@ -1,7 +1,7 @@
 /// Lossless tokenizer built on Rumil combinators.
 library;
 
-import 'package:rumil/rumil.dart';
+import 'package:rumil/rumil.dart' hide Operator;
 
 import 'grammar.dart';
 import 'spanned.dart';
