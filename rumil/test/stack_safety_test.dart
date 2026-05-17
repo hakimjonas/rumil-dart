@@ -162,4 +162,64 @@ void main() {
       expect((r as Success<ParseError, int>).value, 8);
     });
   });
+
+  group('Pratt stack safety', () {
+    // Left-associative: the Pratt loop iterates over operators rather than
+    // recursing, so chain length does not grow the Dart call stack.
+    test('left-associative chain (1M terms) — loop, not recursion', () {
+      final num = digit().map(int.parse);
+      final expr = pratt<int>(num, [
+        InfixLeft(char('+'), 10, (int a, int b) => a + b),
+      ]);
+      final input = List<String>.filled(1000000, '1').join('+');
+      final r = expr.run(input);
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 1000000);
+    });
+
+    // Right-associative: an explicit operator stack is used, so chain length
+    // does not grow the Dart call stack.
+    test('right-associative chain (1M terms)', () {
+      final num = digit().map(int.parse);
+      final expr = pratt<int>(num, [
+        InfixRight(char('+'), 10, (int a, int b) => a + b),
+      ]);
+      final input = List<String>.filled(1000000, '1').join('+');
+      final r = expr.run(input);
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 1000000);
+    });
+
+    // Prefix chain: each prefix pushes a frame on the operator stack rather
+    // than recursing, so prefix count does not grow the Dart call stack.
+    test('chainl1 (1M terms)', () {
+      final num = digit().map(int.parse);
+      final addOp = char('+').map((_) => (int a, int b) => a + b);
+      final input = List<String>.filled(1000000, '1').join('+');
+      final r = num.chainl1(addOp).run(input);
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 1000000);
+    });
+
+    test('chainr1 (1M terms)', () {
+      final num = digit().map(int.parse);
+      final addOp = char('+').map((_) => (int a, int b) => a + b);
+      final input = List<String>.filled(1000000, '1').join('+');
+      final r = num.chainr1(addOp).run(input);
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 1000000);
+    });
+
+    test('prefix chain (1M unary minus)', () {
+      final num = digit().map(int.parse);
+      final expr = pratt<int>(num, [
+        Prefix(char('-'), 40, (int a) => -a),
+      ]);
+      // 1M minuses on 5: even count → +5.
+      final input = '${'-' * 1000000}5';
+      final r = expr.run(input);
+      expect(r, isA<Success<ParseError, int>>());
+      expect((r as Success<ParseError, int>).value, 5);
+    });
+  });
 }

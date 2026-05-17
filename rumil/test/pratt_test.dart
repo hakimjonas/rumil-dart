@@ -62,6 +62,28 @@ void main() {
       expect(val(p.run('-5+3')), -2);
     });
 
+    test('chained prefix: --5 = 5', () {
+      final p = pratt<int>(num, [
+        Prefix(char('-'), 40, (int a) => -a),
+      ]);
+      expect(val(p.run('--5')), 5);
+    });
+
+    test('chained prefix: ---5 = -5', () {
+      final p = pratt<int>(num, [
+        Prefix(char('-'), 40, (int a) => -a),
+      ]);
+      expect(val(p.run('---5')), -5);
+    });
+
+    test('mixed prefixes compose: !-5 with !=*100, -=neg → 500', () {
+      final p = pratt<int>(num, [
+        Prefix(char('!'), 40, (int a) => a * 100),
+        Prefix(char('-'), 40, (int a) => -a),
+      ]);
+      expect(val(p.run('!-5')), -500);
+    });
+
     test('prefix binds tighter than infix: -2^3 = -8 (i.e. (-2)^3)', () {
       final p = pratt<int>(num, [
         InfixRight(

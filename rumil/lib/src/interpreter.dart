@@ -402,6 +402,18 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
             as Result<E, A>;
 
+      case final Chainl1<E, A> ch:
+        return ch.interpretWith(
+          <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
+              _interpretChainl1<E, T>(elt, op, state),
+        );
+
+      case final Chainr1<E, A> ch:
+        return ch.interpretWith(
+          <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
+              _interpretChainr1<E, T>(elt, op, state),
+        );
+
       case final Capture<E, dynamic> cap:
         return cap.interpretWith((inner) {
               final startOff = state.offset;
@@ -594,8 +606,14 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
 
       case final Pratt<E, dynamic> pr:
         return pr.interpretWith(
-          <T>(nud, getOp, minBp, opTable) =>
-              _interpretPratt<E, T>(nud, getOp, minBp, opTable, state),
+          <T>(atom, prefixes, getOp, minBp, opTable) => _interpretPratt<E, T>(
+            atom,
+            prefixes,
+            getOp,
+            minBp,
+            opTable,
+            state,
+          ),
         ) as Result<E, A>;
 
       default:
@@ -1104,41 +1122,187 @@ Result<E, void> _skipManyString<E>(String target, ParserState state) {
   return Success<E, void>(null, totalConsumed);
 }
 
-/// Pratt (Top-Down Operator Precedence) direct-recursion interpreter.
+/// chainl1: parse `p`, then loop on `(op p)`. On op-or-p failure backtrack
+/// to the iteration start and return the accumulated lhs. Mirrors the
+/// recursive `Or(FlatMap(op,FlatMap(p,...)), Succeed(acc))` definition's
+/// semantics — any soft failure stops the chain — but iteratively, so
+/// chain depth does not consume Dart call frames.
+Result<E, A> _interpretChainl1<E, A>(
+  Parser<E, A> p,
+  Parser<E, A Function(A, A)> op,
+  ParserState state,
+) {
+  final first = interpretI<E, A>(p, state);
+  if (first is! Success<E, A>) return first;
+  var lhs = first.value;
+  var totalConsumed = first.consumed;
+
+  while (true) {
+    final snapshot = state.save();
+    final opR = interpretI<E, A Function(A, A)>(op, state);
+    if (opR is! Success<E, A Function(A, A)>) {
+      state.restore(snapshot);
+      return Success<E, A>(lhs, totalConsumed);
+    }
+    final rhs = interpretI<E, A>(p, state);
+    if (rhs is! Success<E, A>) {
+      state.restore(snapshot);
+      return Success<E, A>(lhs, totalConsumed);
+    }
+    lhs = opR.value(lhs, rhs.value);
+    totalConsumed += opR.consumed + rhs.consumed;
+  }
+}
+
+/// chainr1: parse all elements and operators iteratively, then fold right
+/// at the end. The fold itself is a tight loop over the collected lists,
+/// so chain depth does not consume Dart call frames.
+Result<E, A> _interpretChainr1<E, A>(
+  Parser<E, A> p,
+  Parser<E, A Function(A, A)> op,
+  ParserState state,
+) {
+  final first = interpretI<E, A>(p, state);
+  if (first is! Success<E, A>) return first;
+  final values = <A>[first.value];
+  final ops = <A Function(A, A)>[];
+  var totalConsumed = first.consumed;
+
+  while (true) {
+    final snapshot = state.save();
+    final opR = interpretI<E, A Function(A, A)>(op, state);
+    if (opR is! Success<E, A Function(A, A)>) {
+      state.restore(snapshot);
+      break;
+    }
+    final rhs = interpretI<E, A>(p, state);
+    if (rhs is! Success<E, A>) {
+      state.restore(snapshot);
+      break;
+    }
+    ops.add(opR.value);
+    values.add(rhs.value);
+    totalConsumed += opR.consumed + rhs.consumed;
+  }
+
+  // Right fold: a op (b op (c op d)).
+  var acc = values.last;
+  for (var i = values.length - 2; i >= 0; i--) {
+    acc = ops[i](values[i], acc);
+  }
+  return Success<E, A>(acc, totalConsumed);
+}
+
+/// Frame on the Pratt operator stack: a pending operation waiting for the
+/// in-flight nud subparse to produce a value. On completion the frame is
+/// popped and either combined with [savedLhs] (infix) or applied to lhs
+/// alone (prefix). [outerMinBp] is the minBp threshold of the surrounding
+/// scope, restored when the frame pops.
+sealed class _PrattFrame<A> {
+  const _PrattFrame();
+  int get outerMinBp;
+}
+
+final class _PrattInfixFrame<A> extends _PrattFrame<A> {
+  final A savedLhs;
+  final A Function(A, A) combine;
+  @override
+  final int outerMinBp;
+  const _PrattInfixFrame(this.savedLhs, this.combine, this.outerMinBp);
+}
+
+final class _PrattPrefixFrame<A> extends _PrattFrame<A> {
+  final A Function(A) apply;
+  @override
+  final int outerMinBp;
+  const _PrattPrefixFrame(this.apply, this.outerMinBp);
+}
+
+/// Pratt (Top-Down Operator Precedence) iterative interpreter.
 ///
-/// Parses `nud` to establish the LHS, then loops: consult `getOp` (or the
-/// pre-compiled [opTable] when non-null), and on each operator with sufficient
-/// binding power either recurse for RHS + fold (infix) or apply in place
-/// (postfix). Terminates when no operator binds tighter than `minBp`.
+/// Maintains an explicit operator stack so unbounded right-associative
+/// chains (`a^b^c^…`) and prefix chains (`---5`) do not consume Dart call
+/// frames. Two phases keyed by `lhsValid`:
 ///
-/// The `opTable` fast path avoids allocating Failure/error-thunk/Location per
-/// loop iteration: on a char-code miss or a low-bp match the loop exits
-/// without running the full `getOp` parser.
+/// - PARSE_NUD: try each prefix in [prefixes]; on a hit, push a
+///   [_PrattPrefixFrame] and re-enter PARSE_NUD with the prefix's bp as
+///   the new minBp. On a miss-of-all, run [atom] to obtain the lhs and
+///   transition to LOOP_OPS.
+/// - LOOP_OPS: peek the next operator (via [opTable] when available, else
+///   the general [getOp] parser). On infix at lbp > minBp, push a
+///   [_PrattInfixFrame] and transition to PARSE_NUD with rbp as the new
+///   minBp. On postfix at bp > minBp, apply in place and continue. On no
+///   match or low-bp, pop a single frame: combine (infix) or apply
+///   (prefix), restore [outerMinBp], and stay in LOOP_OPS.
 ///
-/// Encapsulated-mutation `while` loop — bounded by input length per postfix
-/// iteration, by recursive RHS depth per infix. Not stack-safe for unbounded
-/// right-associative chains; that would require a trampolined version. Current
-/// Dart consumers (lambe, rumil_expressions) use bounded operator trees.
+/// The opTable fast path avoids allocating Failure/error-thunk/Location
+/// per iteration when every operator has a literal-prefix symbol.
 Result<E, A> _interpretPratt<E, A>(
-  Parser<E, A> nud,
+  Parser<E, A> atom,
+  List<PrattPrefix<E, A>> prefixes,
   Parser<E, PrattOp<A>> getOp,
-  int minBp,
+  int initialMinBp,
   PrattOpTable<A>? opTable,
   ParserState state,
 ) {
-  final initial = interpretI<E, A>(nud, state);
-  if (initial is! Success<E, A>) return initial;
-  var lhs = initial.value;
-  var totalConsumed = initial.consumed;
-
+  final stack = <_PrattFrame<A>>[];
   final table = opTable;
-  if (table != null) {
-    final input = state.input;
-    final consumesWs = table.consumesTrailingWs;
-    while (true) {
-      if (!state.hasChar) return Success<E, A>(lhs, totalConsumed);
+  final input = state.input;
+  final consumesWs = table?.consumesTrailingWs ?? false;
+  var minBp = initialMinBp;
+  var totalConsumed = 0;
+
+  late A lhs;
+  var lhsValid = false;
+
+  outer:
+  while (true) {
+    if (!lhsValid) {
+      // PARSE_NUD: try prefixes (each pushes a frame and re-loops),
+      // then fall through to atom.
+      var matchedPrefix = false;
+      for (final pre in prefixes) {
+        final snapshot = state.save();
+        final r = interpretI<E, Object?>(pre.symbol, state);
+        if (r is Success<E, Object?>) {
+          stack.add(_PrattPrefixFrame<A>(pre.fn, minBp));
+          minBp = pre.bp;
+          totalConsumed += r.consumed;
+          matchedPrefix = true;
+          break;
+        }
+        state.restore(snapshot);
+      }
+      if (matchedPrefix) continue outer;
+
+      final atomR = interpretI<E, A>(atom, state);
+      if (atomR is! Success<E, A>) return atomR;
+      lhs = atomR.value;
+      totalConsumed += atomR.consumed;
+      lhsValid = true;
+    }
+
+    // LOOP_OPS: try to extend lhs with the next operator.
+    if (table != null) {
+      if (!state.hasChar) {
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
       final bucket = table.entriesAt(input.codeUnitAt(state.offset));
-      if (bucket == null) return Success<E, A>(lhs, totalConsumed);
+      if (bucket == null) {
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
 
       final matchOffset = state.offset;
       PrattOpEntry<A>? matched;
@@ -1148,58 +1312,113 @@ Result<E, A> _interpretPratt<E, A>(
           break;
         }
       }
-      if (matched == null) return Success<E, A>(lhs, totalConsumed);
+      if (matched == null) {
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
 
       final op = matched.op;
       final prefixLen = matched.prefix.length;
       switch (op) {
         case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
-          if (lbp <= minBp) return Success<E, A>(lhs, totalConsumed);
+          if (lbp <= minBp) {
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
           state.advanceN(prefixLen);
-          final consumedBefore = prefixLen +
+          totalConsumed += prefixLen +
               (consumesWs ? _skipAsciiWs(state) : 0);
-          final rhs = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
-          if (rhs is! Success<E, A>) return rhs;
-          lhs = combine(lhs, rhs.value);
-          totalConsumed += consumedBefore + rhs.consumed;
+          stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
+          minBp = rbp;
+          lhsValid = false;
+          continue outer;
         case PrattOpPostfix<A>(:final bp, :final apply):
-          if (bp <= minBp) return Success<E, A>(lhs, totalConsumed);
+          if (bp <= minBp) {
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
           state.advanceN(prefixLen);
-          final consumed = prefixLen +
+          totalConsumed += prefixLen +
               (consumesWs ? _skipAsciiWs(state) : 0);
           lhs = apply(lhs);
-          totalConsumed += consumed;
+      }
+    } else {
+      final snapshot = state.save();
+      final opResult = interpretI<E, PrattOp<A>>(getOp, state);
+      if (opResult is! Success<E, PrattOp<A>>) {
+        state.restore(snapshot);
+        if (stack.isNotEmpty) {
+          final popped = _applyFrame(stack.removeLast(), lhs);
+          lhs = popped.lhs;
+          minBp = popped.outerMinBp;
+          continue outer;
+        }
+        return Success<E, A>(lhs, totalConsumed);
+      }
+      switch (opResult.value) {
+        case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
+          if (lbp <= minBp) {
+            state.restore(snapshot);
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
+          totalConsumed += opResult.consumed;
+          stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
+          minBp = rbp;
+          lhsValid = false;
+          continue outer;
+        case PrattOpPostfix<A>(:final bp, :final apply):
+          if (bp <= minBp) {
+            state.restore(snapshot);
+            if (stack.isNotEmpty) {
+              final popped = _applyFrame(stack.removeLast(), lhs);
+              lhs = popped.lhs;
+              minBp = popped.outerMinBp;
+              continue outer;
+            }
+            return Success<E, A>(lhs, totalConsumed);
+          }
+          totalConsumed += opResult.consumed;
+          lhs = apply(lhs);
       }
     }
   }
-
-  while (true) {
-    final snapshot = state.save();
-    final opResult = interpretI<E, PrattOp<A>>(getOp, state);
-    if (opResult is! Success<E, PrattOp<A>>) {
-      state.restore(snapshot);
-      return Success<E, A>(lhs, totalConsumed);
-    }
-    switch (opResult.value) {
-      case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
-        if (lbp <= minBp) {
-          state.restore(snapshot);
-          return Success<E, A>(lhs, totalConsumed);
-        }
-        final rhs = _interpretPratt<E, A>(nud, getOp, rbp, opTable, state);
-        if (rhs is! Success<E, A>) return rhs;
-        lhs = combine(lhs, rhs.value);
-        totalConsumed += opResult.consumed + rhs.consumed;
-      case PrattOpPostfix<A>(:final bp, :final apply):
-        if (bp <= minBp) {
-          state.restore(snapshot);
-          return Success<E, A>(lhs, totalConsumed);
-        }
-        lhs = apply(lhs);
-        totalConsumed += opResult.consumed;
-    }
-  }
 }
+
+/// Result of applying a single popped frame to the current `lhs`. Returned
+/// as a record so callers can update both the lhs accumulator and the minBp
+/// threshold in one assignment.
+typedef _PoppedFrame<A> = ({A lhs, int outerMinBp});
+
+/// Combines (infix) or applies (prefix) [frame] to [lhs] and returns the
+/// updated lhs together with the frame's outerMinBp.
+_PoppedFrame<A> _applyFrame<A>(_PrattFrame<A> frame, A lhs) =>
+    switch (frame) {
+      _PrattInfixFrame<A>(:final savedLhs, :final combine, :final outerMinBp) =>
+        (lhs: combine(savedLhs, lhs), outerMinBp: outerMinBp),
+      _PrattPrefixFrame<A>(:final apply, :final outerMinBp) =>
+        (lhs: apply(lhs), outerMinBp: outerMinBp),
+    };
 
 /// Returns true if [entry]'s prefix matches [input] starting at [offset] and
 /// its guard (word boundary or not-followed-by) is satisfied.

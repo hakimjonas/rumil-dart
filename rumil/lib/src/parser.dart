@@ -334,6 +334,52 @@ final class SkipMany<E, A> extends Parser<E, void> {
   ) => interpret<A>(parser);
 }
 
+/// Left-associative binary operator chain: `p (op p)*` folded as
+/// `((a op b) op c) op d`.
+///
+/// The interpreter handles this iteratively rather than via the recursive
+/// `Or` + `FlatMap` expansion that a hand-rolled definition would use, so
+/// chain depth does not consume Dart call frames.
+final class Chainl1<E, A> extends Parser<E, A> {
+  /// The element parser.
+  final Parser<E, A> p;
+
+  /// The operator parser yielding a 2-arg combiner.
+  final Parser<E, A Function(A, A)> op;
+
+  /// Creates a left-associative chain.
+  const Chainl1(this.p, this.op);
+
+  /// Dispatch to the interpreter with the element type in scope.
+  Result<E, A> interpretWith(
+    Result<E, T> Function<T>(Parser<E, T> p, Parser<E, T Function(T, T)> op)
+    run,
+  ) => run<A>(p, op);
+}
+
+/// Right-associative binary operator chain: `p (op p)*` folded as
+/// `a op (b op (c op d))`.
+///
+/// The interpreter parses all elements and operators iteratively into two
+/// lists, then folds right at the end, so chain depth does not consume
+/// Dart call frames.
+final class Chainr1<E, A> extends Parser<E, A> {
+  /// The element parser.
+  final Parser<E, A> p;
+
+  /// The operator parser yielding a 2-arg combiner.
+  final Parser<E, A Function(A, A)> op;
+
+  /// Creates a right-associative chain.
+  const Chainr1(this.p, this.op);
+
+  /// Dispatch to the interpreter with the element type in scope.
+  Result<E, A> interpretWith(
+    Result<E, T> Function<T>(Parser<E, T> p, Parser<E, T Function(T, T)> op)
+    run,
+  ) => run<A>(p, op);
+}
+
 /// Matches [parser] and returns the consumed input as a string.
 final class Capture<E, A> extends Parser<E, String> {
   /// The parser whose matched input is captured.
@@ -513,39 +559,71 @@ final class Memo<E, A> extends Parser<E, A> {
   const Memo(this.inner, this.key, {required this.enableLR});
 }
 
+/// Prefix operator descriptor stored on a [Pratt] node for stack-safe
+/// dispatch. The combinator builder pre-decomposes user-supplied
+/// `Prefix(symbol, bp, fn)` operators into this form so the interpreter
+/// can detect prefixes by running [symbol] directly, push a pending-apply
+/// frame, and continue iteratively — without recursing through `nud`.
+final class PrattPrefix<E, A> {
+  /// Parser for the prefix operator's symbol.
+  final Parser<E, Object?> symbol;
+
+  /// Binding power claimed for the operand subparse.
+  final int bp;
+
+  /// Transforms the parsed operand into the result.
+  final A Function(A) fn;
+
+  /// Creates a prefix descriptor.
+  const PrattPrefix(this.symbol, this.bp, this.fn);
+}
+
 /// Top-Down Operator Precedence (Pratt) parser node.
 ///
-/// The evaluation loop parses `nud` to establish the LHS accumulator, then
-/// repeatedly consults `getOp` (or, when populated, a direct char dispatch
-/// via `opTable`) to decide whether to fold in another operator. Each
-/// infix operator adopted at `lbp > minBp` recurses for the RHS at `rbp`;
-/// each postfix operator at `bp > minBp` applies in place.
+/// The evaluation loop parses an `atom` (optionally preceded by chained
+/// [prefixes]) to establish the LHS accumulator, then repeatedly consults
+/// `getOp` (or, when populated, a direct char dispatch via `opTable`) to
+/// decide whether to fold in another operator. Each infix operator adopted
+/// at `lbp > minBp` parses an RHS at `rbp` and combines; each postfix at
+/// `bp > minBp` applies in place. Prefixes are parsed by running their
+/// symbol parser directly: on a hit, a pending-apply frame is pushed and
+/// the loop continues at `prefix.bp`.
+///
+/// The interpreter uses an explicit operator stack rather than recursion,
+/// so unbounded right-associative chains and prefix chains do not consume
+/// Dart call frames. This mirrors the stack-safety of the `_runTrampoline`
+/// path used by [FlatMap]/[Mapped]/[Zip].
 ///
 /// `minBp` is a construction-time parameter: set to 0 at the public entry
-/// point, and to `prefix.bp` when a prefix operator recursively builds an
-/// inner Pratt for its operand.
+/// point. Inner Pratt nodes are no longer constructed for prefix operands;
+/// prefixes are encoded as [PrattPrefix] entries the interpreter consumes
+/// directly.
 ///
 /// `opTable` is a speed/allocation shortcut populated by the public builder
-/// when every operator's symbol is a single-character parser. On a hit, the
+/// when every operator's symbol is a literal-prefix parser. On a hit, the
 /// interpreter dispatches via a code-unit array lookup without running the
 /// general `getOp` parser.
 final class Pratt<E, A> extends Parser<E, A> {
-  /// Null-denotation: parses atoms and prefix operators.
-  final Parser<E, A> nud;
+  /// Atom parser invoked once any leading prefixes have been consumed.
+  final Parser<E, A> atom;
+
+  /// Prefix operators recognised at the start of (and recursively inside)
+  /// an operand subparse. Empty when the grammar has no prefix operators.
+  final List<PrattPrefix<E, A>> prefixes;
 
   /// Operator-dispatch parser: returns a PrattOp and consumes the operator tokens.
   final Parser<E, PrattOp<A>> getOp;
 
-  /// Current binding-power threshold; the loop terminates when no operator
+  /// Initial binding-power threshold; the loop terminates when no operator
   /// has `lbp > minBp`.
   final int minBp;
 
-  /// Pre-compiled char dispatch, if every operator has a single-char symbol.
+  /// Pre-compiled char dispatch, if every operator has a literal-prefix symbol.
   /// Null means the interpreter must run `getOp`.
   final PrattOpTable<A>? opTable;
 
   /// Creates a Pratt parser node.
-  const Pratt(this.nud, this.getOp, this.minBp, this.opTable);
+  const Pratt(this.atom, this.prefixes, this.getOp, this.minBp, this.opTable);
 
   /// Dispatch to the Pratt loop with type parameter [A] reified.
   ///
@@ -558,11 +636,12 @@ final class Pratt<E, A> extends Parser<E, A> {
   /// receiver's generic parameter [A] at runtime.
   Result<E, A> interpretWith(
     Result<E, T> Function<T>(
-      Parser<E, T> nud,
+      Parser<E, T> atom,
+      List<PrattPrefix<E, T>> prefixes,
       Parser<E, PrattOp<T>> getOp,
       int minBp,
       PrattOpTable<T>? opTable,
     )
     run,
-  ) => run<A>(nud, getOp, minBp, opTable);
+  ) => run<A>(atom, prefixes, getOp, minBp, opTable);
 }

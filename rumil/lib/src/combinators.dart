@@ -11,19 +11,10 @@ Parser<E, A> choice<E, A>(List<Parser<E, A>> alternatives) =>
 
 /// Left-associative binary operator chain.
 ///
-/// Parses `p (op p)*` and folds left: `((a op b) op c) op d`.
-Parser<E, A> chainl1<E, A>(Parser<E, A> p, Parser<E, A Function(A, A)> op) {
-  Parser<E, A> rest(A acc) => Or<E, A>(
-    FlatMap<E, A Function(A, A), A>(
-      op,
-      (A Function(A, A) f) =>
-          FlatMap<E, A, A>(p, (A right) => rest(f(acc, right))),
-    ),
-    Succeed<E, A>(acc),
-  );
-
-  return FlatMap<E, A, A>(p, rest);
-}
+/// Parses `p (op p)*` and folds left: `((a op b) op c) op d`. Iterative
+/// in the interpreter — chain depth does not grow the Dart call stack.
+Parser<E, A> chainl1<E, A>(Parser<E, A> p, Parser<E, A Function(A, A)> op) =>
+    Chainl1<E, A>(p, op);
 
 /// Exactly [n] occurrences of [p].
 Parser<E, List<A>> count<E, A>(int n, Parser<E, A> p) {
@@ -38,21 +29,10 @@ Parser<E, List<A>> count<E, A>(int n, Parser<E, A> p) {
 
 /// Right-associative binary operator chain.
 ///
-/// Parses `p (op p)*` and folds right: `a op (b op (c op d))`.
+/// Parses `p (op p)*` and folds right: `a op (b op (c op d))`. Iterative
+/// in the interpreter — chain depth does not grow the Dart call stack.
 Parser<E, A> chainr1<E, A>(Parser<E, A> p, Parser<E, A Function(A, A)> op) =>
-    FlatMap<E, A, A>(
-      p,
-      (A left) => Or<E, A>(
-        FlatMap<E, A Function(A, A), A>(
-          op,
-          (A Function(A, A) f) => Mapped<E, A, A>(
-            chainr1<E, A>(p, op),
-            (A right) => f(left, right),
-          ),
-        ),
-        Succeed<E, A>(left),
-      ),
-    );
+    Chainr1<E, A>(p, op);
 
 /// Operator description for the [pratt] combinator.
 ///
@@ -154,29 +134,18 @@ Parser<ParseError, A> pratt<A>(
   Parser<ParseError, A> atom,
   List<Operator<A>> operators,
 ) {
-  final prefixOps = operators.whereType<Prefix<A>>().toList();
   final infixAndPostfix = <Operator<A>>[
     for (final o in operators)
       if (o is! Prefix<A>) o,
   ];
   final getOp = _compileGetOp<A>(infixAndPostfix);
   final opTable = _compileOpTable<A>(infixAndPostfix);
+  final prefixes = <PrattPrefix<ParseError, A>>[
+    for (final o in operators)
+      if (o is Prefix<A>) PrattPrefix<ParseError, A>(o.symbol, o.bp, o.fn),
+  ];
 
-  final Parser<ParseError, A> nud = prefixOps.isEmpty
-      ? atom
-      : Choice<ParseError, A>([
-          for (final pre in prefixOps)
-            FlatMap<ParseError, Object?, A>(
-              pre.symbol,
-              (_) => Mapped<ParseError, A, A>(
-                Pratt<ParseError, A>(atom, getOp, pre.bp, opTable),
-                pre.fn,
-              ),
-            ),
-          atom,
-        ]);
-
-  return Pratt<ParseError, A>(nud, getOp, 0, opTable);
+  return Pratt<ParseError, A>(atom, prefixes, getOp, 0, opTable);
 }
 
 Parser<ParseError, PrattOp<A>> _compileGetOp<A>(List<Operator<A>> ops) {
