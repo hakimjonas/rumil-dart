@@ -5,6 +5,17 @@ import 'location.dart';
 import 'memo.dart';
 
 /// Mutable state carried through a parse.
+///
+/// Design rule: this is the one mutable object in the parsing pipeline.
+/// Its lifetime is exactly one `parser.run(input)` call — it is allocated
+/// in `run()`, threaded through the interpreter, and discarded on return.
+/// It never escapes to user code, never crosses isolate boundaries, and
+/// is never shared between concurrent parses. Parsers themselves
+/// (`Parser<E, A>` ADT) and results (`Result<E, A>` ADT) are immutable.
+///
+/// New mutable state added here must respect that lifetime: it lives
+/// for one parse, observed only by the interpreter, and is discarded
+/// when `run()` returns.
 final class ParserState {
   /// The full input string.
   final String input;

@@ -11,7 +11,7 @@
 ///
 /// To run a single cell directly (used by the parent process):
 ///
-///   dart run bin/probe_pratt_memory.dart child <pratt|chainl> <depth>
+///   `dart run bin/probe_pratt_memory.dart child <pratt|chainl> <depth>`
 library;
 
 import 'dart:io';
@@ -122,7 +122,7 @@ String _fmtBytes(int? bytes) {
 
 String _fmtUs(int? us) {
   if (us == null) return '?';
-  if (us < 1000) return '${us}μs';
+  if (us < 1000) return '$us μs';
   if (us < 1000000) return '${(us / 1000).toStringAsFixed(1)}ms';
   return '${(us / 1000000).toStringAsFixed(2)}s';
 }
