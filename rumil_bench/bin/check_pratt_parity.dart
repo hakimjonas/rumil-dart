@@ -1,4 +1,8 @@
-/// Quick parity check: rumil chainl1 vs rumil Pratt on the same inputs.
+/// Parity check: full rumil_expressions parser (Pratt + conditional layer)
+/// vs the standalone arithmetic-only Pratt builder. Sanity-checks that both
+/// paths agree on common arithmetic shapes; mismatches would indicate a
+/// regression in the Pratt loop, the binding-power table, or the operator
+/// dispatch in either path.
 library;
 
 import 'package:rumil_bench/rumil_pratt_expr.dart';
@@ -16,10 +20,13 @@ void main() {
   var ok = 0;
   var fail = 0;
   for (final c in cases) {
-    final orig = evaluate(c);
-    final pratt = evaluatePratt(c);
-    final match = orig == pratt;
-    print('${match ? "OK " : "BAD"}  "$c" => chainl1=$orig, pratt=$pratt');
+    final exprResult = evaluate(c);
+    final prattResult = evaluatePratt(c);
+    final match = exprResult == prattResult;
+    print(
+      '${match ? "OK " : "BAD"}  "$c" => '
+      'rumil_expr=$exprResult, pratt-arith=$prattResult',
+    );
     if (match) {
       ok++;
     } else {
