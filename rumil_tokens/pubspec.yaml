@@ -1,15 +1,21 @@
 name: rumil_tokens
 description: >-
-  Source code tokenizer built on Rumil. Classified token spans for syntax
-  highlighting. In-tree within the rumil-dart monorepo; not published.
+  Lossless source code tokenizer built on Rumil parser combinators.
+  Classified token spans for syntax highlighting. Built-in grammars for
+  Dart, Scala, YAML, JSON, and shell.
 version: 0.1.0
-publish_to: none
+repository: https://github.com/hakimjonas/rumil-dart
+topics:
+  - parser
+  - tokenizer
+  - syntax-highlighting
+  - lexer
 
 environment:
   sdk: ^3.7.0
 
 dependencies:
-  rumil: ^0.6.0
+  rumil: ^0.7.0
 
 dev_dependencies:
   test: ^1.31.0
