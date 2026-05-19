@@ -559,54 +559,21 @@ final Parser<ParseError, HclValue> _exprTerm = _hclPrimary.flatMap(
   ),
 );
 
-/// Unary operators: `-expr` and `!expr`.
-final Parser<ParseError, HclValue> _unary =
-    (_sym('-').as('-') | _sym('!').as('!')).flatMap(
-      (op) => defer(
-        () => _unary,
-      ).map((operand) => HclUnaryOp(op, operand) as HclValue),
-    ) |
-    _exprTerm;
-
-// Binary operator helpers.
-Parser<ParseError, HclValue Function(HclValue, HclValue)> _binOp(String op) =>
-    _sym(op).as<HclValue Function(HclValue, HclValue)>(
-      (l, r) => HclBinaryOp(op, l, r),
-    );
-
-Parser<ParseError, HclValue Function(HclValue, HclValue)> _binOps(
-  List<String> ops,
-) {
-  var p = _binOp(ops.first);
-  for (var i = 1; i < ops.length; i++) {
-    p = p | _binOp(ops[i]);
-  }
-  return p;
-}
-
-final Parser<ParseError, HclValue> _multiplicative = _unary.chainl1(
-  _binOps(['*', '/', '%']),
+/// Operator precedence: prefix unary `-`/`!` and the six binary
+/// precedence levels supplied by [cFamilyPrecedence]. The conditional
+/// (ternary `? :`) is layered above as a flatMap because its
+/// three-branch shape doesn't fit infix dispatch.
+final Parser<ParseError, HclValue> _operators = pratt<HclValue>(
+  _exprTerm,
+  cFamilyPrecedence<HclValue>(
+    sym: _sym,
+    binary: HclBinaryOp.new,
+    unary: HclUnaryOp.new,
+  ),
 );
-
-final Parser<ParseError, HclValue> _additive = _multiplicative.chainl1(
-  _binOps(['+', '-']),
-);
-
-final Parser<ParseError, HclValue> _comparison = () {
-  final ops = _binOp('<=') | _binOp('>=') | _binOp('<') | _binOp('>');
-  return _additive.chainl1(ops);
-}();
-
-final Parser<ParseError, HclValue> _equality = _comparison.chainl1(
-  _binOps(['==', '!=']),
-);
-
-final Parser<ParseError, HclValue> _logicAnd = _equality.chainl1(_binOp('&&'));
-
-final Parser<ParseError, HclValue> _logicOr = _logicAnd.chainl1(_binOp('||'));
 
 /// Conditional (ternary): `cond ? then : else`.
-final Parser<ParseError, HclValue> _conditional = _logicOr.flatMap(
+final Parser<ParseError, HclValue> _conditional = _operators.flatMap(
   (cond) => (_sym('?')
       .skipThen(defer(() => _hclExpression))
       .flatMap(
