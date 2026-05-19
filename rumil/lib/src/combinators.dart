@@ -6,8 +6,199 @@ import 'location.dart';
 import 'parser.dart';
 
 /// Try alternatives in order until one succeeds.
-Parser<E, A> choice<E, A>(List<Parser<E, A>> alternatives) =>
-    Choice<E, A>(alternatives);
+///
+/// When every alternative starts with a known, distinct character (e.g.
+/// `null` / `true` / `false` / `[` / `{` / `"` / digits in JSON), the
+/// builder transparently fuses to a [FirstCharChoice] for O(1) dispatch
+/// instead of the linear `Or`-chain scan. The fusion is conservative:
+/// any alternative whose leading-char set is undecidable (`Defer`,
+/// `FlatMap`, `Memo`, an opaque `Satisfy`, etc.), or any pair of
+/// alternatives that share a leading char, disables it and falls
+/// through to a regular [Choice]. Choices with fewer than 3
+/// alternatives are also left unfused — a 2-way choice is already
+/// efficiently handled by the existing `Or` FIRST-set optimization.
+Parser<E, A> choice<E, A>(List<Parser<E, A>> alternatives) {
+  if (alternatives.length < 3) return Choice<E, A>(alternatives);
+  final fused = _tryFuseFirstChar<E, A>(alternatives);
+  if (fused != null) return fused;
+  return Choice<E, A>(alternatives);
+}
+
+/// Attempt to fuse [alternatives] into a [FirstCharChoice] when each has
+/// statically decidable, mutually disjoint leading characters. Returns
+/// null when fusion is unsafe (any alternative is undecidable or any
+/// two share a leading char).
+Parser<E, A>? _tryFuseFirstChar<E, A>(List<Parser<E, A>> alternatives) {
+  final perAltSets = <Set<int>>[];
+  for (final alt in alternatives) {
+    final chars = _leadingChars(alt);
+    if (chars == null) return null;
+    // Internal duplicates within one alternative are fine (an Or-chain
+    // may have several branches starting with the same char). Only
+    // cross-alternative collisions disable fusion.
+    perAltSets.add(chars.toSet());
+  }
+  final dispatch = <int, Parser<E, A>>{};
+  final expectedBuf = StringBuffer();
+  for (var i = 0; i < alternatives.length; i++) {
+    for (final cu in perAltSets[i]) {
+      if (dispatch.containsKey(cu)) {
+        // Two alternatives share a leading char — bail out, the linear
+        // Or scan is still required to disambiguate.
+        return null;
+      }
+      dispatch[cu] = alternatives[i];
+      expectedBuf.writeCharCode(cu);
+    }
+  }
+  return FirstCharChoice<E, A>(dispatch, expectedBuf.toString());
+}
+
+/// Inspects [p] and returns the set of code units it can start with,
+/// or null if undecidable.
+///
+/// Recognised shapes:
+/// - `StringMatch(target)` → `{target.codeUnitAt(0)}`
+/// - `StringChoice(targets)` → first code unit of each target
+/// - `Satisfy` whose expected label is `'c'` (single-char) → `{c}`. This
+///   matches the `char(c)` shape; arbitrary `Satisfy` predicates are
+///   undecidable.
+/// - `Mapped` / `Named` / `Expect` / `LookAhead` / `Memo` → recurse into
+///   the inner parser (these wrappers don't change the leading char).
+/// - `Or` / `Choice` → recurse into all branches; result is the union.
+/// - `Zip(left, _)` / `Capture(inner)` → recurse on the leading
+///   sub-parser; the leading char comes from the leftmost element.
+///
+/// Anything else (`FlatMap`, `Defer`, `Optional`, `Many`, etc.) returns
+/// null — the leading char depends on a value not available at
+/// construction time, or the parser may match empty input.
+List<int>? _leadingChars(Parser<dynamic, dynamic> p) {
+  // String literal of length 3 in the form 'c' (apostrophe + char +
+  // apostrophe) is the convention used by `char(c)` for its expected
+  // label. Recovering the char from this string lets us decide
+  // single-char Satisfy parsers without inspecting the predicate.
+  const apostrophe = 0x27;
+
+  switch (p) {
+    case StringMatch(:final target):
+      if (target.isEmpty) return null;
+      return [target.codeUnitAt(0)];
+
+    case StringChoice(:final targets):
+      final cus = <int>{};
+      for (final t in targets) {
+        if (t.isEmpty) return null;
+        cus.add(t.codeUnitAt(0));
+      }
+      return cus.toList();
+
+    case Satisfy(:final expected):
+      if (expected.length == 3 &&
+          expected.codeUnitAt(0) == apostrophe &&
+          expected.codeUnitAt(2) == apostrophe) {
+        return [expected.codeUnitAt(1)];
+      }
+      return null;
+
+    case Mapped(:final source):
+      return _leadingChars(source);
+
+    case Named(:final parser):
+      return _leadingChars(parser);
+
+    case Expect(:final parser):
+      return _leadingChars(parser);
+
+    case LookAhead(:final parser):
+      return _leadingChars(parser);
+
+    case Memo(:final inner):
+      return _leadingChars(inner);
+
+    case Zip(:final left):
+      return _leadingChars(left);
+
+    case Capture(:final parser):
+      return _leadingChars(parser);
+
+    case Or(:final left, :final right):
+      final l = _leadingChars(left);
+      if (l == null) return null;
+      final r = _leadingChars(right);
+      if (r == null) return null;
+      return [...l, ...r];
+
+    case Choice(:final alternatives):
+      final all = <int>[];
+      for (final alt in alternatives) {
+        final chars = _leadingChars(alt);
+        if (chars == null) return null;
+        all.addAll(chars);
+      }
+      return all;
+
+    default:
+      return null;
+  }
+}
+
+/// Dispatch to one of several parsers based on the leading character at
+/// the current position.
+///
+/// [dispatch] keys are strings of one or more characters; a single key
+/// like `'-0123456789'` binds the same parser to all 11 leading chars
+/// (useful for number literals). Each key character maps to that key's
+/// parser in the dispatch table. Duplicate characters across keys throw
+/// [ArgumentError] at construction.
+///
+/// On no leading-char match, runs [fallback] if provided, else fails
+/// with an error listing the expected characters. The chosen parser is
+/// invoked at the same position; it sees the leading char as input.
+///
+/// O(1) dispatch vs `choice([...])` / `p1 | p2 | ...`'s linear scan.
+/// Use when the alternatives have disjoint leading characters — typical
+/// for value parsers in structured formats.
+///
+/// ```dart
+/// final jsonValue = firstCharChoice<ParseError, JsonValue>({
+///   'n': jsonNull,
+///   'tf': jsonBool,
+///   '-0123456789': jsonNumber,
+///   '"': jsonString,
+///   '[': jsonArray,
+///   '{': jsonObject,
+/// });
+/// ```
+Parser<ParseError, A> firstCharChoice<A>(
+  Map<String, Parser<ParseError, A>> dispatch, {
+  Parser<ParseError, A>? fallback,
+}) {
+  final table = <int, Parser<ParseError, A>>{};
+  final expectedBuf = StringBuffer();
+  for (final entry in dispatch.entries) {
+    if (entry.key.isEmpty) {
+      throw ArgumentError(
+        'firstCharChoice: dispatch keys must be non-empty strings',
+      );
+    }
+    for (var i = 0; i < entry.key.length; i++) {
+      final cu = entry.key.codeUnitAt(i);
+      if (table.containsKey(cu)) {
+        throw ArgumentError(
+          'firstCharChoice: duplicate leading char '
+          '"${entry.key[i]}" across dispatch keys',
+        );
+      }
+      table[cu] = entry.value;
+      expectedBuf.write(entry.key[i]);
+    }
+  }
+  return FirstCharChoice<ParseError, A>(
+    table,
+    expectedBuf.toString(),
+    fallback: fallback,
+  );
+}
 
 /// Left-associative binary operator chain.
 ///

@@ -288,6 +288,28 @@ final class Choice<E, A> extends Parser<E, A> {
   const Choice(this.alternatives);
 }
 
+/// Dispatches to one of [dispatch]'s parsers based on the leading code
+/// unit at the current position. O(1) lookup vs `Or` / `Choice`'s linear
+/// scan, useful for value-alternatives in formats with disjoint leading
+/// characters (JSON values: `n`/`t`/`f`/digits/`"`/`[`/`{`).
+///
+/// On no leading-char match, runs [fallback] if provided, else fails
+/// with an error listing the dispatch keys.
+final class FirstCharChoice<E, A> extends Parser<E, A> {
+  /// Code-unit-keyed dispatch table.
+  final Map<int, Parser<E, A>> dispatch;
+
+  /// Optional fallback parser tried when no leading char matches.
+  final Parser<E, A>? fallback;
+
+  /// String of unique leading chars (in declaration order) for error
+  /// messages on dispatch miss.
+  final String expectedChars;
+
+  /// Creates a first-char dispatch parser.
+  const FirstCharChoice(this.dispatch, this.expectedChars, {this.fallback});
+}
+
 // ---------------------------------------------------------------------------
 // Repetition
 // ---------------------------------------------------------------------------

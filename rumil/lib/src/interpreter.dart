@@ -348,6 +348,32 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
       case Choice<E, A>(:final alternatives):
         return _interpretChoice<E, A>(alternatives, state);
 
+      case FirstCharChoice<E, A>(
+        :final dispatch,
+        :final fallback,
+        :final expectedChars,
+      ):
+        if (state.hasChar) {
+          final cu = state.input.codeUnitAt(state.offset);
+          final picked = dispatch[cu];
+          if (picked != null) return interpretI<E, A>(picked, state);
+        }
+        if (fallback != null) return interpretI<E, A>(fallback, state);
+        final loc = state.location;
+        if (state.hasChar) {
+          final c = state.currentChar;
+          return Failure<E, A>(
+            () => [
+              Unexpected(c, {'one of "$expectedChars"'}, loc) as E,
+            ],
+            loc,
+          );
+        }
+        return Failure<E, A>(
+          () => [EndOfInput('one of "$expectedChars"', loc) as E],
+          loc,
+        );
+
       case Capture<E, dynamic>(
         parser: Many<E, dynamic>(parser: final Satisfy s),
       ):
