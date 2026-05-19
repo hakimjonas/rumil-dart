@@ -2,8 +2,8 @@
 ///
 /// These are convenience functions that return ready-made operator lists
 /// for common precedence ladders. They are not part of rumil's core
-/// architecture — the [pratt] combinator and [Operator] subtypes are. The
-/// presets exist to remove the duplicate operator/binding-power tables
+/// architecture — the [pratt] combinator and [PrattOperator] subtypes are.
+/// The presets exist to remove the duplicate operator/binding-power tables
 /// that otherwise appear in every consumer that parses expressions.
 library;
 
@@ -60,7 +60,7 @@ import 'parser.dart';
 ///   InfixRight(_sym('//'), 5, Alternative.new),
 /// ];
 /// ```
-List<Operator<A>> cFamilyPrecedence<A>({
+List<PrattOperator<A>> cFamilyPrecedence<A>({
   required Parser<ParseError, String> Function(String) sym,
   required A Function(String op, A left, A right) binary,
   required A Function(String op, A operand) unary,

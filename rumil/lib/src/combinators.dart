@@ -236,12 +236,12 @@ Parser<E, A> chainr1<E, A>(Parser<E, A> p, Parser<E, A Function(A, A)> op) =>
 /// - [InfixRight] at `bp` gives `lbp=bp, rbp=bp-1` — right-associative
 /// - [Prefix] applies before its operand at binding power `bp`
 /// - [Postfix] applies to the accumulated LHS at binding power `bp`
-sealed class Operator<A> {
-  const Operator();
+sealed class PrattOperator<A> {
+  const PrattOperator();
 }
 
 /// Left-associative infix: `a op b op c` → `(a op b) op c`.
-final class InfixLeft<A> extends Operator<A> {
+final class InfixLeft<A> extends PrattOperator<A> {
   /// The parser recognizing this operator's symbol.
   final Parser<ParseError, Object?> symbol;
 
@@ -256,7 +256,7 @@ final class InfixLeft<A> extends Operator<A> {
 }
 
 /// Right-associative infix: `a op b op c` → `a op (b op c)`.
-final class InfixRight<A> extends Operator<A> {
+final class InfixRight<A> extends PrattOperator<A> {
   /// The parser recognizing this operator's symbol.
   final Parser<ParseError, Object?> symbol;
 
@@ -271,7 +271,7 @@ final class InfixRight<A> extends Operator<A> {
 }
 
 /// Prefix operator: applies before its operand (e.g. unary `-`).
-final class Prefix<A> extends Operator<A> {
+final class Prefix<A> extends PrattOperator<A> {
   /// The parser recognizing this operator's symbol.
   final Parser<ParseError, Object?> symbol;
 
@@ -286,7 +286,7 @@ final class Prefix<A> extends Operator<A> {
 }
 
 /// Postfix operator: applies after its operand (e.g. `n!`).
-final class Postfix<A> extends Operator<A> {
+final class Postfix<A> extends PrattOperator<A> {
   /// The parser recognizing this operator's symbol.
   final Parser<ParseError, Object?> symbol;
 
@@ -323,9 +323,9 @@ final class Postfix<A> extends Operator<A> {
 /// ```
 Parser<ParseError, A> pratt<A>(
   Parser<ParseError, A> atom,
-  List<Operator<A>> operators,
+  List<PrattOperator<A>> operators,
 ) {
-  final infixAndPostfix = <Operator<A>>[
+  final infixAndPostfix = <PrattOperator<A>>[
     for (final o in operators)
       if (o is! Prefix<A>) o,
   ];
@@ -339,7 +339,7 @@ Parser<ParseError, A> pratt<A>(
   return Pratt<ParseError, A>(atom, prefixes, getOp, 0, opTable);
 }
 
-Parser<ParseError, PrattOp<A>> _compileGetOp<A>(List<Operator<A>> ops) {
+Parser<ParseError, PrattOp<A>> _compileGetOp<A>(List<PrattOperator<A>> ops) {
   if (ops.isEmpty) {
     return Fail<ParseError, PrattOp<A>>(
       CustomError('pratt: no operators', Location.zero),
@@ -392,7 +392,7 @@ typedef _SymShape = ({String prefix, TokenGuard guard});
 ///
 /// Ops whose parsers drop into [Mapped]/[FlatMap]/[Defer] early return null,
 /// so downstream consumers only pay the table cost when it actually applies.
-PrattOpTable<A>? _compileOpTable<A>(List<Operator<A>> ops) {
+PrattOpTable<A>? _compileOpTable<A>(List<PrattOperator<A>> ops) {
   var anyTrailingWs = false;
 
   final pairs = <(int, PrattOpEntry<A>)>[];
@@ -428,10 +428,7 @@ PrattOpTable<A>? _compileOpTable<A>(List<Operator<A>> ops) {
   }
   return pairs.isEmpty
       ? null
-      : PrattOpTable.fromEntries<A>(
-          pairs,
-          consumesTrailingWs: anyTrailingWs,
-        );
+      : PrattOpTable.fromEntries<A>(pairs, consumesTrailingWs: anyTrailingWs);
 }
 
 /// Extracts the literal prefix + post-match guard for a known operator
