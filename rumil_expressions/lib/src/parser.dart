@@ -82,36 +82,18 @@ final Parser<ParseError, Expr> _functionCall = _identifier.flatMap(
 // ---- Operators (Pratt) ----
 //
 // Single Pratt parse covers prefix unary `-`/`!` and six precedence levels
-// of binary operators. Higher binding power binds tighter. The conditional
-// `? :` is layered above Pratt because its shape (LHS `?` THEN `:` ELSE)
-// needs a flatMap to express the two-branch lookahead.
+// of binary operators via the C-family preset. The conditional `? :` is
+// layered above Pratt because its shape (LHS `?` THEN `:` ELSE) needs a
+// flatMap to express the two-branch lookahead.
 
-Expr _binOp(String op, Expr a, Expr b) => BinaryOp(op, a, b);
-
-final Parser<ParseError, Expr> _operators = pratt<Expr>(_primary, [
-  // Logical OR (lowest precedence).
-  InfixLeft(_sym('||'), 10, (Expr a, Expr b) => _binOp('||', a, b)),
-  // Logical AND.
-  InfixLeft(_sym('&&'), 20, (Expr a, Expr b) => _binOp('&&', a, b)),
-  // Equality.
-  InfixLeft(_sym('=='), 30, (Expr a, Expr b) => _binOp('==', a, b)),
-  InfixLeft(_sym('!='), 30, (Expr a, Expr b) => _binOp('!=', a, b)),
-  // Comparison.
-  InfixLeft(_sym('<='), 40, (Expr a, Expr b) => _binOp('<=', a, b)),
-  InfixLeft(_sym('>='), 40, (Expr a, Expr b) => _binOp('>=', a, b)),
-  InfixLeft(_sym('<'), 40, (Expr a, Expr b) => _binOp('<', a, b)),
-  InfixLeft(_sym('>'), 40, (Expr a, Expr b) => _binOp('>', a, b)),
-  // Additive.
-  InfixLeft(_sym('+'), 50, (Expr a, Expr b) => _binOp('+', a, b)),
-  InfixLeft(_sym('-'), 50, (Expr a, Expr b) => _binOp('-', a, b)),
-  // Multiplicative.
-  InfixLeft(_sym('*'), 60, (Expr a, Expr b) => _binOp('*', a, b)),
-  InfixLeft(_sym('/'), 60, (Expr a, Expr b) => _binOp('/', a, b)),
-  InfixLeft(_sym('%'), 60, (Expr a, Expr b) => _binOp('%', a, b)),
-  // Prefix unary (highest precedence).
-  Prefix(_sym('-'), 70, (Expr e) => UnaryOp('-', e)),
-  Prefix(_sym('!'), 70, (Expr e) => UnaryOp('!', e)),
-]);
+final Parser<ParseError, Expr> _operators = pratt<Expr>(
+  _primary,
+  cFamilyPrecedence<Expr>(
+    sym: _sym,
+    binary: BinaryOp.new,
+    unary: UnaryOp.new,
+  ),
+);
 
 // ---- Conditional ----
 
