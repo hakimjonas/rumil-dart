@@ -126,10 +126,11 @@ final Parser<ParseError, JsonValue> _jsonObject = () {
       .named('object'));
 }();
 
-final Parser<ParseError, JsonValue> _jsonValue = (_jsonNull |
-        _jsonBool |
-        _jsonNumber |
-        _jsonString |
-        defer(() => _jsonArray) |
-        defer(() => _jsonObject))
-    .named('value');
+final Parser<ParseError, JsonValue> _jsonValue = firstCharChoice<JsonValue>({
+  'n': _jsonNull,
+  'tf': _jsonBool,
+  '-0123456789': _jsonNumber,
+  '"': _jsonString,
+  '[': defer(() => _jsonArray),
+  '{': defer(() => _jsonObject),
+}).named('value');
