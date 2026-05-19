@@ -11,7 +11,7 @@ export 'src/spanned.dart';
 export 'src/grammar.dart';
 
 // Tokenizer
-export 'src/tokenizer.dart' show tokenize, tokenizeSpans;
+export 'src/tokenizer.dart' show buildTokenizer, tokenize, tokenizeSpans;
 
 // Built-in language grammars
 export 'src/languages.dart';

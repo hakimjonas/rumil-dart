@@ -31,7 +31,7 @@ List<Token> tokenize(String source, LangGrammar grammar) =>
 /// covering `[0, source.length)`.
 List<Spanned<Token>> tokenizeSpans(String source, LangGrammar grammar) {
   if (source.isEmpty) return const [];
-  final parser = _buildSpannedTokenizer(grammar);
+  final parser = buildTokenizer(grammar);
   final result = parser.run(source);
   final spans = switch (result) {
     Success<ParseError, List<Spanned<Token>>>(:final value) => value,
@@ -43,9 +43,27 @@ List<Spanned<Token>> tokenizeSpans(String source, LangGrammar grammar) {
   return _mergePlainSpans(spans);
 }
 
-Parser<ParseError, List<Spanned<Token>>> _buildSpannedTokenizer(
-  LangGrammar grammar,
-) {
+/// Builds a parser for tokenizing source text against [grammar].
+///
+/// Use this when you tokenize many strings against the same grammar —
+/// building the parser once and reusing it amortizes the construction
+/// cost across calls. The returned parser produces
+/// `List<Spanned<Token>>` directly (call `.token` on each span if you
+/// don't need byte offsets).
+///
+/// [tokenize] and [tokenizeSpans] rebuild this parser on every call.
+/// They are convenient for one-off tokenization; for hot paths (REPL
+/// highlighting, large files) prefer caching the result of
+/// [buildTokenizer].
+///
+/// ```dart
+/// final dartTokenizer = buildTokenizer(dart);
+/// for (final source in sources) {
+///   final result = dartTokenizer.run(source);
+///   // ...
+/// }
+/// ```
+Parser<ParseError, List<Spanned<Token>>> buildTokenizer(LangGrammar grammar) {
   final choice = Choice<ParseError, Token>(_alternatives(grammar));
   final spanned = position<ParseError>()
       .zip(choice)
