@@ -5,6 +5,12 @@ library;
 ///
 /// Grammars are plain data. The tokenizer reads a grammar and builds
 /// the combinator pipeline.
+///
+/// **Default behaviour**: the constructor enables `"`-delimited and
+/// `'`-delimited string literals by default. Pass
+/// `stringDelimiters: const []` to opt out. Most other features
+/// (annotations, raw strings, heredocs, etc.) are off by default and
+/// must be enabled per-language.
 class LangGrammar {
   /// Language identifier (e.g. `'dart'`, `'scala'`).
   final String name;
@@ -48,6 +54,11 @@ class LangGrammar {
   ///
   /// Matched operators emit one [Operator] token including the full
   /// multi-char text.
+  ///
+  /// Multi-char operators are matched **before** identifiers and
+  /// keywords. Entries should therefore be symbol sequences (`==`,
+  /// `&&`, `<-`, `=>`), not letter words. Letter-based tokens belong
+  /// in [keywords] instead.
   final List<String> multiCharOperators;
 
   /// Single-character operator alphabet.

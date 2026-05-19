@@ -1,13 +1,12 @@
 # rumil_tokens
 
-**Status: in-tree only. Not published to pub.dev.** Consumed via path
-dependency from other packages in the monorepo (e.g. `rem`).
-
-Source code tokenizer built on [Rumil](https://pub.dev/packages/rumil)
-parser combinators. Classifies source text into typed token spans:
-keywords, strings, comments, numbers, types, annotations, operators,
-variables, and punctuation. Token streams are lossless; concatenating
-`token.text` across a stream reconstructs the input exactly.
+Lossless source code tokenizer built on
+[Rumil](https://pub.dev/packages/rumil) parser combinators. Classifies
+source text into typed token spans: keywords, strings, comments,
+numbers, types, annotations, operators, variables, and punctuation.
+Token streams are lossless; concatenating `token.text` across a stream
+reconstructs the input exactly. Built-in grammars for Dart, Scala,
+YAML, JSON, and shell.
 
 ## Usage
 
@@ -41,6 +40,25 @@ Look up a grammar by name:
 
 ```dart
 final grammar = grammarFor('dart'); // returns null for unknown languages
+```
+
+Enumerate the built-in grammars:
+
+```dart
+for (final g in builtinGrammars) {
+  print(g.name);
+}
+```
+
+For hot paths (REPL highlighting, large files), build the parser once
+and reuse it across calls:
+
+```dart
+final dartTokenizer = buildTokenizer(dart);
+for (final source in sources) {
+  final result = dartTokenizer.run(source);
+  // ...
+}
 ```
 
 ## Lossless property

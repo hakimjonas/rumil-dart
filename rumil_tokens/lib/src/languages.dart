@@ -362,3 +362,9 @@ LangGrammar? grammarFor(String language) => switch (language) {
   'sh' || 'bash' || 'shell' || 'zsh' => shell,
   _ => null,
 };
+
+/// All built-in language grammars in declaration order.
+///
+/// Useful for CLIs and tooling that need to enumerate supported
+/// languages. Pair with [grammarFor] to look up by name.
+const List<LangGrammar> builtinGrammars = [dart, scala, yaml, json, shell];

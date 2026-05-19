@@ -767,6 +767,22 @@ fi
   });
 
   // ---------------------------------------------------------------------------
+  // builtinGrammars enumeration
+  // ---------------------------------------------------------------------------
+
+  group('builtinGrammars', () {
+    test('contains all 5 built-in grammars in declaration order', () {
+      expect(builtinGrammars, [dart, scala, yaml, json, shell]);
+    });
+
+    test('every entry is reachable via grammarFor', () {
+      for (final g in builtinGrammars) {
+        expect(grammarFor(g.name), g);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Edge cases
   // ---------------------------------------------------------------------------
 

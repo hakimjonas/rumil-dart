@@ -1,29 +1,39 @@
 ## 0.1.0
 
-Initial in-tree cut. Source code tokenizer built on Rumil. Not
-published to pub.dev; consumed via path dependency from elsewhere
-in the monorepo.
+First public release. Lossless source code tokenizer built on Rumil
+parser combinators. Classifies source text into typed token spans
+with byte offsets.
+
+Developed in-tree within the rumil-dart monorepo since 2026-04 and
+used by `rem` and `lambe`; first publication to pub.dev with the
+rumil 0.7 family release.
 
 ### Tokens
 
 - Sealed `Token` ADT: `Keyword`, `TypeName`, `StringLit`, `NumberLit`,
   `Comment`, `Punctuation`, `Operator`, `Variable`, `Identifier`,
-  `Annotation`, `Whitespace`, `Plain`.
+  `Annotation`, `Whitespace`, `Plain`. Lossless: concatenating every
+  token's `text` reproduces the source exactly.
 
 ### API
 
-- `tokenize(source, grammar)` returns a lossless `List<Token>`;
-  concatenating `token.text` reconstructs the source exactly.
+- `tokenize(source, grammar)` returns a lossless `List<Token>`.
 - `tokenizeSpans(source, grammar)` returns `List<Spanned<Token>>`
-  carrying byte offsets. Spans are half-open `[start, end)`,
-  contiguous, and anchored to `[0, source.length)`.
+  with byte offsets. Spans are half-open `[start, end)`, contiguous,
+  anchored to `[0, source.length)`.
+- `buildTokenizer(grammar)` returns the underlying
+  `Parser<ParseError, List<Spanned<Token>>>` for callers that
+  tokenize many sources against one grammar — building once and
+  reusing avoids the per-call parser-construction cost.
 - `Spanned<T extends Token>` is an extension type over
   `(T, int, int)`. Narrow types upcast to wider ones.
 
 ### Built-in grammars
 
 - `dart`, `scala`, `yaml`, `json`, `shell`.
-- `grammarFor(name)` returns the matching grammar or `null`.
+- `grammarFor(name)` looks up by name (with aliases like `yml` →
+  `yaml`, `bash`/`sh`/`zsh` → `shell`).
+- `builtinGrammars` is a list of all five for enumeration.
 
 ### `LangGrammar` fields
 
@@ -49,4 +59,5 @@ in the monorepo.
 
 ### Dependencies
 
-- `rumil: ^0.6.0` for the `position()` primitive.
+- `rumil: ^0.7.0` for the `position()` primitive and `Choice<E, A>`
+  ADT.
