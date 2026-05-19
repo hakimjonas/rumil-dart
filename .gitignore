@@ -21,3 +21,6 @@ build/
 .DS_Store
 Thumbs.db
 doc/
+
+# Local scratch notes (release planning, status snapshots, etc.)
+*.scratch.md
