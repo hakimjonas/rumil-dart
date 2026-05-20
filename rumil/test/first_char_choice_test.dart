@@ -31,10 +31,9 @@ void main() {
     });
 
     test('runs fallback when no leading char matches', () {
-      final p = firstCharChoice<String>(
-        {'a': string('apple')},
-        fallback: string('banana'),
-      );
+      final p = firstCharChoice<String>({
+        'a': string('apple'),
+      }, fallback: string('banana'));
       expect(_val(p.run('apple')), 'apple');
       expect(_val(p.run('banana')), 'banana');
     });
@@ -56,10 +55,7 @@ void main() {
 
     test('rejects duplicate leading chars across keys', () {
       expect(
-        () => firstCharChoice<String>({
-          'ab': string('x'),
-          'bc': string('y'),
-        }),
+        () => firstCharChoice<String>({'ab': string('x'), 'bc': string('y')}),
         throwsArgumentError,
       );
     });
@@ -90,10 +86,7 @@ void main() {
     });
 
     test('does not fuse a 2-way choice', () {
-      final p = choice<ParseError, String>([
-        string('apple'),
-        string('banana'),
-      ]);
+      final p = choice<ParseError, String>([string('apple'), string('banana')]);
       expect(p, isA<Choice<ParseError, String>>());
     });
 

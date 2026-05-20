@@ -632,15 +632,17 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
 
       case final Pratt<E, dynamic> pr:
         return pr.interpretWith(
-          <T>(atom, prefixes, getOp, minBp, opTable) => _interpretPratt<E, T>(
-            atom,
-            prefixes,
-            getOp,
-            minBp,
-            opTable,
-            state,
-          ),
-        ) as Result<E, A>;
+              <T>(atom, prefixes, getOp, minBp, opTable) =>
+                  _interpretPratt<E, T>(
+                    atom,
+                    prefixes,
+                    getOp,
+                    minBp,
+                    opTable,
+                    state,
+                  ),
+            )
+            as Result<E, A>;
 
       default:
         throw StateError('Unreachable: unhandled ${p.runtimeType}');
@@ -1106,9 +1108,10 @@ Result<E, A> _collectMany1String<E, A>(String target, ParserState state) {
       !_regionMatches(input, state.offset, target)) {
     final loc = state.location;
     if (state.hasChar) {
-      final endOff = state.offset + len <= input.length
-          ? state.offset + len
-          : input.length;
+      final endOff =
+          state.offset + len <= input.length
+              ? state.offset + len
+              : input.length;
       final found = input.substring(state.offset, endOff);
       return Failure<E, A>(
         () => [
@@ -1362,8 +1365,7 @@ Result<E, A> _interpretPratt<E, A>(
             return Success<E, A>(lhs, totalConsumed);
           }
           state.advanceN(prefixLen);
-          totalConsumed += prefixLen +
-              (consumesWs ? _skipAsciiWs(state) : 0);
+          totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
           stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
           minBp = rbp;
           lhsValid = false;
@@ -1379,8 +1381,7 @@ Result<E, A> _interpretPratt<E, A>(
             return Success<E, A>(lhs, totalConsumed);
           }
           state.advanceN(prefixLen);
-          totalConsumed += prefixLen +
-              (consumesWs ? _skipAsciiWs(state) : 0);
+          totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
           lhs = apply(lhs);
       }
     } else {
@@ -1438,13 +1439,16 @@ typedef _PoppedFrame<A> = ({A lhs, int outerMinBp});
 
 /// Combines (infix) or applies (prefix) [frame] to [lhs] and returns the
 /// updated lhs together with the frame's outerMinBp.
-_PoppedFrame<A> _applyFrame<A>(_PrattFrame<A> frame, A lhs) =>
-    switch (frame) {
-      _PrattInfixFrame<A>(:final savedLhs, :final combine, :final outerMinBp) =>
-        (lhs: combine(savedLhs, lhs), outerMinBp: outerMinBp),
-      _PrattPrefixFrame<A>(:final apply, :final outerMinBp) =>
-        (lhs: apply(lhs), outerMinBp: outerMinBp),
-    };
+_PoppedFrame<A> _applyFrame<A>(_PrattFrame<A> frame, A lhs) => switch (frame) {
+  _PrattInfixFrame<A>(:final savedLhs, :final combine, :final outerMinBp) => (
+    lhs: combine(savedLhs, lhs),
+    outerMinBp: outerMinBp,
+  ),
+  _PrattPrefixFrame<A>(:final apply, :final outerMinBp) => (
+    lhs: apply(lhs),
+    outerMinBp: outerMinBp,
+  ),
+};
 
 /// Returns true if [entry]'s prefix matches [input] starting at [offset] and
 /// its guard (word boundary or not-followed-by) is satisfied.

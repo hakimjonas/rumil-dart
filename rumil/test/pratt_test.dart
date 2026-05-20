@@ -45,11 +45,7 @@ void main() {
   group('pratt — features beyond chainl1', () {
     test('right-associative power: 2^3^2 = 512', () {
       final p = pratt<int>(num, [
-        InfixRight(
-          char('^'),
-          30,
-          (int a, int b) => math.pow(a, b).toInt(),
-        ),
+        InfixRight(char('^'), 30, (int a, int b) => math.pow(a, b).toInt()),
       ]);
       expect(val(p.run('2^3^2')), 512);
     });
@@ -63,16 +59,12 @@ void main() {
     });
 
     test('chained prefix: --5 = 5', () {
-      final p = pratt<int>(num, [
-        Prefix(char('-'), 40, (int a) => -a),
-      ]);
+      final p = pratt<int>(num, [Prefix(char('-'), 40, (int a) => -a)]);
       expect(val(p.run('--5')), 5);
     });
 
     test('chained prefix: ---5 = -5', () {
-      final p = pratt<int>(num, [
-        Prefix(char('-'), 40, (int a) => -a),
-      ]);
+      final p = pratt<int>(num, [Prefix(char('-'), 40, (int a) => -a)]);
       expect(val(p.run('---5')), -5);
     });
 
@@ -86,11 +78,7 @@ void main() {
 
     test('prefix binds tighter than infix: -2^3 = -8 (i.e. (-2)^3)', () {
       final p = pratt<int>(num, [
-        InfixRight(
-          char('^'),
-          30,
-          (int a, int b) => math.pow(a, b).toInt(),
-        ),
+        InfixRight(char('^'), 30, (int a, int b) => math.pow(a, b).toInt()),
         Prefix(char('-'), 40, (int a) => -a),
       ]);
       // With prefix bp=40 > infix ^ bp=30, -2 binds before ^.
@@ -98,27 +86,19 @@ void main() {
     });
 
     test('postfix applies to LHS: 5! with apply=n*10 → 50', () {
-      final p = pratt<int>(num, [
-        Postfix(char('!'), 50, (int a) => a * 10),
-      ]);
+      final p = pratt<int>(num, [Postfix(char('!'), 50, (int a) => a * 10)]);
       expect(val(p.run('5!')), 50);
     });
 
     test('postfix chains left-to-right: 5!!! with apply=n+1 → 8', () {
-      final p = pratt<int>(num, [
-        Postfix(char('!'), 50, (int a) => a + 1),
-      ]);
+      final p = pratt<int>(num, [Postfix(char('!'), 50, (int a) => a + 1)]);
       expect(val(p.run('5!!!')), 8);
     });
 
     test('mixed assoc: 1+2^3+4 = (1+(2^3))+4 = 13', () {
       final p = pratt<int>(num, [
         InfixLeft(char('+'), 10, (int a, int b) => a + b),
-        InfixRight(
-          char('^'),
-          30,
-          (int a, int b) => math.pow(a, b).toInt(),
-        ),
+        InfixRight(char('^'), 30, (int a, int b) => math.pow(a, b).toInt()),
       ]);
       expect(val(p.run('1+2^3+4')), 13);
     });
@@ -127,11 +107,7 @@ void main() {
       final p = pratt<int>(num, [
         InfixLeft(char('+'), 10, (int a, int b) => a + b),
         InfixLeft(char('*'), 20, (int a, int b) => a * b),
-        InfixRight(
-          char('^'),
-          30,
-          (int a, int b) => math.pow(a, b).toInt(),
-        ),
+        InfixRight(char('^'), 30, (int a, int b) => math.pow(a, b).toInt()),
       ]);
       expect(val(p.run('1+2*3^2')), 19);
     });
@@ -171,7 +147,16 @@ void main() {
     test('(1+2)*3 = 9', () {
       late final Parser<ParseError, int> expr;
       late final Parser<ParseError, int> atom;
-      atom = Or(num, FlatMap(char('('), (_) => FlatMap(Defer(() => expr), (int e) => FlatMap(char(')'), (_) => Succeed(e)))));
+      atom = Or(
+        num,
+        FlatMap(
+          char('('),
+          (_) => FlatMap(
+            Defer(() => expr),
+            (int e) => FlatMap(char(')'), (_) => Succeed(e)),
+          ),
+        ),
+      );
       expr = pratt<int>(Defer(() => atom), [
         InfixLeft(char('+'), 10, (int a, int b) => a + b),
         InfixLeft(char('*'), 20, (int a, int b) => a * b),
@@ -182,7 +167,16 @@ void main() {
     test('((2+3)*4)+5 = 25', () {
       late final Parser<ParseError, int> expr;
       late final Parser<ParseError, int> atom;
-      atom = Or(num, FlatMap(char('('), (_) => FlatMap(Defer(() => expr), (int e) => FlatMap(char(')'), (_) => Succeed(e)))));
+      atom = Or(
+        num,
+        FlatMap(
+          char('('),
+          (_) => FlatMap(
+            Defer(() => expr),
+            (int e) => FlatMap(char(')'), (_) => Succeed(e)),
+          ),
+        ),
+      );
       expr = pratt<int>(Defer(() => atom), [
         InfixLeft(char('+'), 10, (int a, int b) => a + b),
         InfixLeft(char('-'), 10, (int a, int b) => a - b),

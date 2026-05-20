@@ -1,3 +1,28 @@
+## 0.7.0
+
+- **JSON:** value-dispatch parser migrated from a 6-way `Or` chain to
+  rumil's new `firstCharChoice` combinator. JSON values have cleanly
+  disjoint leading chars (`n`, `t`/`f`, digits/`-`, `"`, `[`, `{`),
+  so the O(1) dispatch replaces the linear scan. Bench numbers (AOT
+  native, 6 runs): json-small 24.0 µs → 18.4 µs (-23%), json-medium
+  35.0 ms → 25.7 ms (-27%), json-large 429 ms → 312 ms (-27%). vs
+  petitparser ratio improves from 13× to ~10× small / ~9× large.
+  All RFC 8259 conformance tests pass unchanged.
+- **HCL:** operator precedence parser migrated from a six-layered
+  `chainl1` ladder + recursive `_unary` to a single `pratt(...)` call
+  using rumil's new `cFamilyPrecedence` preset. Functionally
+  equivalent — same operators, same binding powers, same AST. Bench
+  numbers: hcl-config 253 µs → 225 µs (-11%), hcl-50res 10.7 ms →
+  9.32 ms (-13%) on AOT native. All HCL conformance tests
+  (specsuite, fuzz corpus, terraform-provider-aws .tf files) pass
+  unchanged.
+- Other format parsers (CSV, TOML, XML, YAML, Proto3, Markdown) are
+  unchanged at the source level. They benefit transparently from
+  rumil 0.7's `Many(StringMatch)` / `SkipMany(simple)` fast paths
+  (CSV measured 10–22% faster) and from the FIRST-set Or dispatch
+  optimization (small wins on alternation-heavy grammars).
+- Depends on `rumil: ^0.7.0`.
+
 ## 0.6.0
 
 - Depends on `rumil: ^0.6.0`. Version aligned with the rumil-dart

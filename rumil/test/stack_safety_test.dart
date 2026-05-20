@@ -212,9 +212,7 @@ void main() {
 
     test('prefix chain (1M unary minus)', () {
       final num = digit().map(int.parse);
-      final expr = pratt<int>(num, [
-        Prefix(char('-'), 40, (int a) => -a),
-      ]);
+      final expr = pratt<int>(num, [Prefix(char('-'), 40, (int a) => -a)]);
       // 1M minuses on 5: even count → +5.
       final input = '${'-' * 1000000}5';
       final r = expr.run(input);

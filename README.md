@@ -25,13 +25,50 @@ import 'package:rumil/rumil.dart';
 final r = char('a').run('abc');
 // Success('a', consumed: 1)
 
-// Compose parsers
-final number = digit().many1.capture.map(int.parse);
-final add = symbol('+').map((_) => (int a, int b) => a + b);
-final expr = number.chainl1(add);
-expr.run('1+2+3');
-// Success(6, consumed: 5), left-associative
+// Compose parsers — `lexeme` consumes trailing whitespace so the
+// operators below can match without explicit whitespace handling.
+final number = lexeme(digit().many1.capture.map(int.parse));
+
+// Operator precedence with Pratt + the C-family preset
+final expr = pratt<int>(
+  number,
+  cFamilyPrecedence<int>(
+    sym: symbol,
+    binary: (op, l, r) => switch (op) {
+      '+' => l + r,
+      '-' => l - r,
+      '*' => l * r,
+      '/' => l ~/ r,
+      _ => throw UnsupportedError(op),
+    },
+    unary: (op, x) => op == '-' ? -x : x,
+  ),
+);
+expr.run('1 + 2 * 3');
+// Success(7, ...) — multiplicative binds tighter than additive
 ```
+
+### Why Pratt + the preset
+
+This was the natural shape of expression grammars in earlier rumil
+versions too — six layered `chainl1` calls, one per precedence level.
+0.7.0 unifies it:
+
+- **Performance.** Single-pass operator dispatch replaces six dispatch
+  layers. Measured 30–35% faster on `rumil_expressions` and 11–13%
+  faster on HCL across the full bench matrix.
+- **Stack safety.** `pratt`'s explicit operator stack handles
+  right-associative chains and chained prefixes to memory-only depth.
+  `chainl1` and `chainr1` were also promoted to first-class ADT cases
+  with iterative interpretation (was StackOverflow at ~850 chain
+  steps under the previous expansion).
+- **Same correctness guarantees.** Left recursion via `rule()`
+  (Warth seed-growth) still works as before — Pratt sits inside that
+  story, not orthogonal to it. Typed errors with location, lazy error
+  construction, parser inspection, memoization, all unchanged.
+- **`chainl1` and `chainr1` still ship** for non-precedence folds.
+  Pratt is recommended when you have actual operator precedence;
+  `chainl1` is fine for a flat left-fold.
 
 ## Left recursion
 
@@ -120,24 +157,28 @@ final personCodec = product2(stringCodec, intCodec).xmap(
 
 ## Combinator DSL
 
-| Operation      | Syntax                    |
-|----------------|---------------------------|
-| Sequence       | `p1.zip(p2)`              |
-| Keep left      | `p1.thenSkip(p2)`         |
-| Keep right     | `p1.skipThen(p2)`         |
-| Alternation    | `p1.or(p2)` or `p1 \| p2` |
-| Map            | `p.map(f)`                |
-| FlatMap        | `p.flatMap(f)`            |
-| Many (0+)      | `p.many`                  |
-| Many (1+)      | `p.many1`                 |
-| Optional       | `p.optional`              |
-| Separated      | `p.sepBy(sep)`            |
-| Between        | `p.between(l, r)`         |
-| Left chain     | `p.chainl1(op)`           |
-| Right chain    | `p.chainr1(op)`           |
-| Capture text   | `p.capture`               |
-| Memoize        | `p.memoize`               |
-| Left recursion | `rule(() => ...)`         |
+| Operation              | Syntax                              |
+|------------------------|-------------------------------------|
+| Sequence               | `p1.zip(p2)`                        |
+| Keep left              | `p1.thenSkip(p2)`                   |
+| Keep right             | `p1.skipThen(p2)`                   |
+| Alternation            | `p1.or(p2)` or `p1 \| p2`           |
+| Multi-way choice       | `choice([p1, p2, p3, ...])`         |
+| First-char dispatch    | `firstCharChoice({'a': pa, ...})`   |
+| Map                    | `p.map(f)`                          |
+| FlatMap                | `p.flatMap(f)`                      |
+| Many (0+)              | `p.many`                            |
+| Many (1+)              | `p.many1`                           |
+| Optional               | `p.optional`                        |
+| Separated              | `p.sepBy(sep)`                      |
+| Between                | `p.between(l, r)`                   |
+| Operator precedence    | `pratt(atom, [InfixLeft(...), ...])`|
+| Standard ops preset    | `cFamilyPrecedence(...)`            |
+| Left chain (flat fold) | `p.chainl1(op)`                     |
+| Right chain (flat fold)| `p.chainr1(op)`                     |
+| Capture text           | `p.capture`                         |
+| Memoize                | `p.memoize`                         |
+| Left recursion         | `rule(() => ...)`                   |
 
 ## Design
 
@@ -153,16 +194,18 @@ No external runtime dependencies. Only `dart:typed_data` and `dart:convert`.
 
 Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Both parsers build the same typed `JsonValue` AST to keep the comparison fair.
 
-| Benchmark              | Rumil  | petitparser | Ratio |
-|------------------------|--------|-------------|-------|
-| JSON small (39B)       | 25 μs  | 2.0 μs      | 13x   |
-| JSON large (803KB)     | 449 ms | 45 ms       | 10x   |
-| Expression (simple)    | 11 μs  | 1.0 μs      | 11x   |
-| Expression (100 terms) | 320 μs | 28 μs       | 11x   |
+| Benchmark              | Rumil 0.7 | petitparser | Ratio |
+|------------------------|-----------|-------------|-------|
+| JSON small (39B)       | 18 μs     | 1.9 μs      | 10x   |
+| JSON large (803KB)     | 312 ms    | 44 ms       | 7x    |
+| Expression (simple)    | 6.5 μs    | 0.8 μs      | 8x    |
+| Expression (100 terms) | 181 μs    | 28 μs       | 6x    |
 
-Rumil is 10-13x slower than petitparser on native AOT. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows to 3-4x because sealed class dispatch compiles efficiently to WasmGC `br_on_cast` while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls. WasmGC is now consistently 2x faster than AOT native for Rumil parsers.
+Rumil is 6–10× slower than petitparser on native AOT, down from 10–13× in 0.6. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows further because sealed class dispatch compiles efficiently to WasmGC `br_on_cast` while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls. WasmGC is consistently 2× faster than AOT native for Rumil parsers.
 
-See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair comparison breakdown, dart2wasm numbers, and format parser throughput.
+The 0.7 wins come from `pratt(...)` + `cFamilyPrecedence` (–30% on `rumil_expressions`, –11–13% on HCL) and `firstCharChoice` (–24–27% on JSON across all sizes), plus interpreter-level optimizations that apply transparently (FIRST-set Or dispatch, `Many(StringMatch)` / `SkipMany(simple)` fast paths, `Capture(Many)` fusion).
+
+See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair comparison breakdown, dart2wasm numbers, and format parser throughput. (BENCHMARKS.md is being refreshed for 0.7.0; the table above is the updated headline.)
 
 **Different tradeoffs from petitparser:**
 

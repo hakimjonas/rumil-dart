@@ -1,3 +1,94 @@
+## 0.7.0
+
+**Pratt operator-precedence parsing, stack-safe chain combinators,
+operator preset, first-char dispatch.** Synchronized release across
+all rumil-dart packages.
+
+### New combinators
+
+- **`pratt(...)`**: Top-Down Operator Precedence (TDOP) combinator. Takes
+  an atom parser and a list of `PrattOperator<A>` descriptors —
+  `InfixLeft<A>`, `InfixRight<A>`, `Prefix<A>`, `Postfix<A>` — with
+  binding powers and node constructors. Single-pass operator-precedence
+  parsing in place of layered `chainl1` calls.
+- **`cFamilyPrecedence<A>(...)`**: convenience preset returning the
+  standard 15-operator C-family precedence ladder
+  (`||`/`&&`/`==`/`!=`/comparison/additive/multiplicative + prefix
+  `-`/`!`). Consumers pass binary/unary node constructors and the symbol
+  parser; per-symbol customization is via dispatch on the input string.
+- **`firstCharChoice<A>(...)`**: O(1) dispatch to one of several
+  alternatives based on the leading code unit at the current position.
+  Map keys are strings of one or more chars (e.g. `'tf'` binds both `t`
+  and `f`, `'-0123456789'` binds 11 chars). Optional `fallback` runs on
+  miss. Used in JSON's value dispatch (24–27% faster across all input
+  sizes vs the previous `Or`-chain form).
+- **`choice([...])` auto-fuses to `FirstCharChoice`** when alternatives
+  have statically decidable, mutually disjoint leading chars (≥3
+  alternatives required). The introspector peels through `Mapped` /
+  `Named` / `Expect` / `LookAhead` / `Memo` / `Zip-left` / `Capture`
+  and recurses into `Or` / `Choice`; bails on `Defer` / `FlatMap` /
+  opaque-predicate `Satisfy`. Recursive grammars that need the
+  optimization should use the explicit `firstCharChoice` builder.
+- **`Chainl1<E, A>` and `Chainr1<E, A>`** are now first-class Parser ADT
+  cases. `chainl1(p, op)` and `chainr1(p, op)` continue to be the public
+  builders; they construct these nodes directly.
+
+### Stack safety
+
+- **chainl1 / chainr1** are now stack-safe to memory-only depth (was
+  StackOverflow at ~850 chain steps under the previous recursive
+  `Or` + `FlatMap` expansion).
+- **Pratt right-associative chains** scale to 1M+ depth via an explicit
+  operator stack.
+- **Pratt prefix chains** (`--5`, `---5`, `!-x`) compose correctly and
+  scale to 1M+ depth.
+
+### Performance
+
+- **FIRST-set dispatch on `Or`**: peeks at one character to skip doomed
+  left branches when the leading shape is decidable (`Satisfy`,
+  `StringMatch`, `StringChoice`, `Eof` plus `Mapped`/`Zip`-left/
+  `LookAhead` peeling).
+- **`Many(StringMatch)` / `SkipMany(simple)` fast paths**: bypass
+  per-iteration error-thunk allocation in repetition loops.
+- **Pratt opTable fast path**: when all infix/postfix operator symbols
+  are literal-prefix parsers, dispatch via a code-unit-indexed table
+  with optional word-boundary / not-followed-by-char guards.
+
+### Correctness fixes
+
+- **`Named<A>` / `Expect<A>` type erasure**: previous code inferred
+  `A=dynamic` and the resulting `Result<E, dynamic>` failed the runtime
+  cast to `Result<E, A>`. Fix uses explicit `interpretI<ParseError, A>`
+  with typed pattern matching. Was dormant until consumers wrapped
+  Named parsers inside Pratt expressions.
+
+### Trade-offs
+
+- chainl1/chainr1 now go through a dedicated ADT case rather than the
+  recursive `Or`+`FlatMap` expansion. Shallow-chain workloads pay ~5–7%
+  more per iteration in dispatch overhead in exchange for the
+  unbounded stack safety. The recommended path for new precedence-driven
+  grammars is `pratt(...)` + `cFamilyPrecedence`, which delivers a net
+  win on every workload measured. All three rumil consumers
+  (rumil_expressions, rumil_parsers/HCL, lambe) have been migrated.
+
+### Documentation
+
+- `state.dart` documents the mutability boundary: `ParserState` is the
+  one mutable object in the parsing pipeline, scoped to a single
+  `parser.run(input)` call, never escapes to user code.
+
+### Naming
+
+- The Pratt operator-descriptor sealed class is named `PrattOperator<A>`
+  (parent of `InfixLeft<A>`/`InfixRight<A>`/`Prefix<A>`/`Postfix<A>`).
+  This frees the bare `Operator` name for downstream consumers that
+  have their own `Operator` types — notably `rumil_tokens`, where
+  `Operator` is a `Token` subclass for value-computing operator
+  characters in source code. Subclass names (`InfixLeft`, etc.) are
+  unchanged.
+
 ## 0.6.0
 
 Synchronized release across all rumil-dart packages. Additive for

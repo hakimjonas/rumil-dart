@@ -1,3 +1,21 @@
+## 0.7.0
+
+- **Parser migrated from a six-layered `chainl1` ladder to a single
+  `pratt(...)` call** using rumil's new `cFamilyPrecedence` preset.
+  Functionally equivalent — same operators, same binding powers, same
+  `Expr` AST shape. The conditional (`? :`) stays layered above as a
+  flatMap because its three-branch shape doesn't fit infix dispatch.
+- **Performance:** 30–35% faster across all expression workloads on
+  AOT native. Bench numbers: simple `1 + 2 * 3` 9.40 µs → 6.47 µs
+  (-31%), nested 30.20 µs → 21.83 µs (-28%), 100-term chain 279 µs →
+  181 µs (-35%), 50-paren depth 469 µs → 307 µs (-35%). Win comes
+  from collapsing six dispatch layers into one Pratt loop and
+  eliminating the recursive `_unary` definition via the explicit
+  `Prefix` operator descriptor.
+- Public API unchanged: `parseExpression`, `parse`, `evaluate`, `eval`,
+  `Environment`, `Expr` and all subtypes preserved.
+- Depends on `rumil: ^0.7.0`.
+
 ## 0.6.0
 
 - Depends on `rumil: ^0.6.0`. Version aligned with the rumil-dart

@@ -46,11 +46,7 @@ void main() {
     final sym = customSym ?? string;
     return pratt<_Expr>(
       atom,
-      cFamilyPrecedence<_Expr>(
-        sym: sym,
-        binary: _Bin.new,
-        unary: _Un.new,
-      ),
+      cFamilyPrecedence<_Expr>(sym: sym, binary: _Bin.new, unary: _Un.new),
     );
   }
 
@@ -64,18 +60,24 @@ void main() {
     });
 
     test('comparison binds tighter than equality', () {
-      expect(_val(exprWith().run('1<2==3>4')).toString(),
-          '((1 < 2) == (3 > 4))');
+      expect(
+        _val(exprWith().run('1<2==3>4')).toString(),
+        '((1 < 2) == (3 > 4))',
+      );
     });
 
     test('equality binds tighter than &&', () {
-      expect(_val(exprWith().run('1==2&&3!=4')).toString(),
-          '((1 == 2) && (3 != 4))');
+      expect(
+        _val(exprWith().run('1==2&&3!=4')).toString(),
+        '((1 == 2) && (3 != 4))',
+      );
     });
 
     test('&& binds tighter than ||', () {
-      expect(_val(exprWith().run('1&&2||3&&4')).toString(),
-          '((1 && 2) || (3 && 4))');
+      expect(
+        _val(exprWith().run('1&&2||3&&4')).toString(),
+        '((1 && 2) || (3 && 4))',
+      );
     });
 
     test('left-associative across additive', () {

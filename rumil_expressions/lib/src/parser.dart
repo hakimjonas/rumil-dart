@@ -88,11 +88,7 @@ final Parser<ParseError, Expr> _functionCall = _identifier.flatMap(
 
 final Parser<ParseError, Expr> _operators = pratt<Expr>(
   _primary,
-  cFamilyPrecedence<Expr>(
-    sym: _sym,
-    binary: BinaryOp.new,
-    unary: UnaryOp.new,
-  ),
+  cFamilyPrecedence<Expr>(sym: _sym, binary: BinaryOp.new, unary: UnaryOp.new),
 );
 
 // ---- Conditional ----
