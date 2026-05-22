@@ -102,16 +102,22 @@ Object? xmlToNative(XmlNode node) => switch (node) {
 
 /// Convert an [HclDocument] to native Dart types.
 ///
-/// Groups duplicate block types into lists.
+/// Blocks always become lists, regardless of count, so the shape is
+/// uniform across N=1 and N≥2 cases. The AST already distinguishes
+/// blocks ([HclBlock]) from attributes; the decoder uses that
+/// discriminator instead of inferring container shape from key
+/// collisions. Attribute-keyed entries follow last-write-wins.
 Map<String, Object?> hclDocToNative(HclDocument doc) {
   final result = <String, Object?>{};
   for (final (key, value) in doc) {
     final native = hclToNative(value);
-    final existing = result[key];
-    if (existing is List) {
-      existing.add(native);
-    } else if (existing != null) {
-      result[key] = [existing, native];
+    if (value is HclBlock) {
+      final existing = result[key];
+      if (existing is List) {
+        existing.add(native);
+      } else {
+        result[key] = [native];
+      }
     } else {
       result[key] = native;
     }

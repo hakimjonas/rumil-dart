@@ -618,10 +618,19 @@ resource "aws_instance" "web" {
         parseHcl('resource "aws_instance" "web" {\n  ami = "abc"\n}\n'),
       );
       final native = hclDocToNative(d);
-      final res = native['resource'] as Map;
+      final res = (native['resource'] as List).first as Map;
       expect(res['_type'], 'resource');
       expect(res['_labels'], ['aws_instance', 'web']);
       expect(res['ami'], 'abc');
+    });
+
+    test('single block also wraps in list', () {
+      final d = doc_(
+        parseHcl('variable "region" {\n  default = "us-east-1"\n}\n'),
+      );
+      final native = hclDocToNative(d);
+      expect(native['variable'], isA<List<Object?>>());
+      expect((native['variable'] as List).length, 1);
     });
 
     test('multiple blocks grouped into list', () {

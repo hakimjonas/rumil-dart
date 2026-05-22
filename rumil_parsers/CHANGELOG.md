@@ -1,3 +1,18 @@
+## 0.7.1
+
+### Fixed
+
+- **HCL decoder is now consistent across N=1 vs N≥2 same-labeled
+  blocks.** `hclDocToNative` previously returned a single block as a
+  non-list (`{...}`) and multiple blocks as a list. Now blocks always
+  return as lists, regardless of count, using the `HclBlock`
+  discriminator already present in the AST. Attributes are unchanged.
+  Consumers that pattern-matched on `result['variable'] is Map` for the
+  N=1 case must switch to `result['variable'] is List` (always). The
+  previous behavior threw away structural information from the parser
+  AST and made common Terraform patterns (one `terraform`, one
+  `provider`, single `variable`) require defensive shape checks.
+
 ## 0.7.0
 
 - **JSON:** value-dispatch parser migrated from a 6-way `Or` chain to
