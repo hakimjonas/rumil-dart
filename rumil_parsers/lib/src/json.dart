@@ -22,8 +22,13 @@ final Parser<ParseError, void> _ws = satisfy(
   'whitespace',
 ).many.as<void>(null);
 
-Parser<ParseError, A> _lex<A>(Parser<ParseError, A> p) =>
-    _ws.skipThen(p).thenSkip(_ws);
+/// Token wrapper: skips trailing whitespace only.
+///
+/// The top-level [_jsonParser] strips leading whitespace once; every
+/// subsequent token sits adjacent to a sibling `_lex` call that already
+/// consumed the whitespace before it. A second leading `_ws` per
+/// `_lex` would be a no-op double-pass.
+Parser<ParseError, A> _lex<A>(Parser<ParseError, A> p) => p.thenSkip(_ws);
 
 // ---- Literals ----
 
