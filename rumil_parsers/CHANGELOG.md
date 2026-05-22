@@ -55,14 +55,15 @@ the largest wins under Wasm where the JsonInt/JsonDouble split unlocks
 i64-vs-f64 specialization that the flattened representation forced
 into a single homogeneous f64 path.
 
-Median of 100 runs on a quiet Linux x86_64 workstation, Dart SDK
-3.11.4. Full table and reproduction instructions in `BENCHMARKS.md`.
+Mean μs/op across 100 measured iterations + 100 warmup, Linux x86_64,
+Dart SDK 3.11.4. Each pass run separately on a quiet system. Full
+table and per-byte MB/s in `BENCHMARKS.md`.
 
 | Workload       | 0.7.0 AOT | 0.8.0 AOT | AOT speedup | 0.7.0 Wasm | 0.8.0 Wasm | Wasm speedup |
 |----------------|----------:|----------:|------------:|-----------:|-----------:|-------------:|
-| integer_heavy  |   158.5 ms|   149.4 ms|        1.06×|     83.3 ms|     65.2 ms|         1.28×|
-| float_heavy    |   183.8 ms|   173.7 ms|        1.06×|     92.6 ms|     74.2 ms|         1.25×|
-| mixed          |    1343 ms|    1087 ms|        1.24×|    593.5 ms|    425.4 ms|         1.40×|
+| integer_heavy  |   162.1 ms|   154.5 ms|        1.05×|     86.8 ms|     64.7 ms|         1.34×|
+| float_heavy    |   189.2 ms|   179.5 ms|        1.05×|     96.0 ms|     76.9 ms|         1.25×|
+| mixed          |    1368 ms|    1115 ms|        1.23×|    609.4 ms|    430.3 ms|         1.42×|
 
 Wins come from three changes: capture-based number parsing (one
 allocation per token instead of a per-character interpolation chain),
@@ -74,8 +75,15 @@ combinator architecture's affinity for Wasm codegen surfaces in the
 Wasm column — the `mixed` workload composes all four optimizations
 (numbers, strings, dispatch, lex) and shows the largest relative win.
 
-See `tool/bench/json_bench.dart` for the harness and `BENCHMARKS.md`
-for the full numbers including per-byte normalization.
+Reproduce via `rumil_bench`'s `bench_json_perf_pass`:
+
+```bash
+cd rumil_bench
+dart compile exe bin/bench_json_perf_pass.dart -o /tmp/perf.aot
+/tmp/perf.aot
+```
+
+For the Wasm column, see `BENCHMARKS.md` for the full instructions.
 
 ## 0.7.0
 
