@@ -95,16 +95,40 @@ final Parser<ParseError, String> _unicodeEscape = char('u')
     .skipThen(common.hexDigit().times(4))
     .map((digits) => String.fromCharCode(int.parse(digits.join(), radix: 16)));
 
-final Parser<ParseError, String> _stringChar =
-    _escapeSequence |
+/// One-or-more unescaped string characters, captured as a single
+/// substring slice. The `many1` lower bound ensures the alternation
+/// `_unescapedRun | _escapeSequence` always advances — both branches
+/// consume at least one character — so the outer `.many` cannot
+/// loop on a zero-length match.
+final Parser<ParseError, String> _unescapedRun =
     satisfy(
       (c) => c != '"' && c != '\\' && c.codeUnitAt(0) >= 0x20,
       'string char',
-    );
+    ).many1.capture;
 
-final Parser<ParseError, String> _rawString = char(
-  '"',
-).skipThen(_stringChar.many).map((chars) => chars.join()).thenSkip(char('"'));
+/// One part of a JSON string: either a captured run of unescaped
+/// characters or a single decoded escape sequence.
+final Parser<ParseError, String> _stringPart = _unescapedRun | _escapeSequence;
+
+/// JSON string parser.
+///
+/// Scans unescaped runs as substring slices via `capture`, only
+/// entering the per-character escape path on `\`. Strings with no
+/// escapes pay one allocation (the captured slice). Strings with
+/// escapes pay O(escape-count) intermediate strings instead of O(n)
+/// per-character `String.join`. The empty string `""` returns the
+/// empty string; the parts list is folded to the single-part form to
+/// avoid a redundant `join('')` allocation in the common case.
+final Parser<ParseError, String> _rawString = char('"')
+    .skipThen(_stringPart.many)
+    .map(
+      (parts) => switch (parts.length) {
+        0 => '',
+        1 => parts[0],
+        _ => parts.join(),
+      },
+    )
+    .thenSkip(char('"'));
 
 final Parser<ParseError, JsonValue> _jsonString = _lex(
   _rawString,
