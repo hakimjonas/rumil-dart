@@ -38,38 +38,43 @@ final Parser<ParseError, JsonValue> _jsonBool = _lex(
 
 // ---- Numbers ----
 
+/// Consumes the integer part of a JSON number: `0` or `[1-9][0-9]*`.
+final Parser<ParseError, void> _intPartShape =
+    char('0').as<void>(null) |
+    satisfy(
+      (c) => c.compareTo('1') >= 0 && c.compareTo('9') <= 0,
+      '1-9',
+    ).skipThen(digit().many).as<void>(null);
+
+/// Consumes the JSON-number grammar without producing values; the
+/// captured slice is classified after via [_jsonNumber].
+final Parser<ParseError, void> _numberShape = char('-').optional
+    .skipThen(_intPartShape)
+    .skipThen(char('.').skipThen(digit().many1).optional)
+    .skipThen(
+      oneOf('eE')
+          .skipThen((char('+') | char('-')).optional)
+          .skipThen(digit().many1)
+          .optional,
+    )
+    .as<void>(null);
+
+/// JSON number parser.
+///
+/// Captures the matched source slice in one pass, then classifies:
+/// integer-shaped tokens that fit in Dart's `int` go to [JsonInt];
+/// everything else goes to [JsonDouble]. One allocation per number
+/// (the captured slice), no per-character intermediates. Big integers
+/// that overflow `int` fall back to `JsonDouble`, matching
+/// `dart:convert`.
 final Parser<ParseError, JsonValue> _jsonNumber = _lex(
-  char('-').optional.flatMap(
-    (neg) => (char('0').as('0') |
-            satisfy(
-              (c) => c.compareTo('1') >= 0 && c.compareTo('9') <= 0,
-              '1-9',
-            ).zip(digit().many).capture)
-        .flatMap(
-          (intPart) => char('.')
-              .skipThen(digit().many1)
-              .optional
-              .flatMap(
-                (frac) => oneOf('eE')
-                    .skipThen(
-                      (char('+') | char('-')).optional.zip(digit().many1),
-                    )
-                    .optional
-                    .map((exp) {
-                      final sign = neg != null ? '-' : '';
-                      final fracStr = frac != null ? '.${frac.join()}' : '';
-                      final expStr =
-                          exp != null ? 'e${exp.$1 ?? ''}${exp.$2.join()}' : '';
-                      final slice = '$sign$intPart$fracStr$expStr';
-                      if (frac == null && exp == null) {
-                        final i = int.tryParse(slice);
-                        if (i != null) return JsonInt(i) as JsonValue;
-                      }
-                      return JsonDouble(double.parse(slice)) as JsonValue;
-                    }),
-              ),
-        ),
-  ),
+  _numberShape.capture.map((slice) {
+    if (!slice.contains('.') && !slice.contains('e') && !slice.contains('E')) {
+      final i = int.tryParse(slice);
+      if (i != null) return JsonInt(i) as JsonValue;
+    }
+    return JsonDouble(double.parse(slice));
+  }),
 ).named('number');
 
 // ---- Strings ----
