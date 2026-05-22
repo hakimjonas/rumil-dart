@@ -1,4 +1,39 @@
-## 0.7.1
+## 0.8.0
+
+JSON parser, principled and fast. Three logical chunks ship together:
+the HCL decoder fix originally scoped as 0.7.1, a JSON AST split
+(`JsonNumber` → `JsonInt | JsonDouble`), and a JSON parser perf
+overhaul.
+
+### Changed (breaking)
+
+- **`JsonNumber` is now a sealed sum of `JsonInt(int)` and
+  `JsonDouble(double)`.** The previous single-`JsonNumber(double)`
+  representation flattened integer-shaped and float-shaped tokens at
+  the AST layer, silently losing precision for integers above 2^53 and
+  denying downstream consumers the type discrimination they need to
+  specialize integer-vs-float paths.
+
+  The new shape matches the discrimination already present in
+  `dart:convert` (where `jsonDecode` returns `int` or `double` based
+  on token shape), serde_json's `Number` enum
+  (`PosInt`/`NegInt`/`Float`), simdjson's `number_type`
+  (`signed_integer`/`unsigned_integer`/`floating_point_number`), and
+  Jackson's `NumericNode` hierarchy. Pattern matching on `JsonNumber`
+  becomes pattern matching on `JsonInt` or `JsonDouble`. Equality
+  across the variants is `false`: `JsonInt(1) != JsonDouble(1.0)`.
+
+  Big integers exceeding Dart's `int` range fall back to `JsonDouble`,
+  matching `dart:convert`'s rule. Adding an explicit `JsonBigInt`
+  variant is reserved for a future release if real consumers need it.
+
+  Round-trip fidelity is improved as a side effect: `parseJson('1.0')`
+  now serializes back as `'1.0'` rather than `'1'`. The source token
+  shape is preserved.
+
+  Decoders are tolerant of either variant — `jsonInt.decode(JsonDouble)`
+  narrows via `value.toInt()`, `jsonDouble.decode(JsonInt)` widens via
+  `value.toDouble()`. Documented on each decoder.
 
 ### Fixed
 
@@ -12,6 +47,35 @@
   previous behavior threw away structural information from the parser
   AST and made common Terraform patterns (one `terraform`, one
   `provider`, single `variable`) require defensive shape checks.
+
+### Performance
+
+The JSON parser is now substantially faster on every workload, with
+the largest wins under Wasm where the JsonInt/JsonDouble split unlocks
+i64-vs-f64 specialization that the flattened representation forced
+into a single homogeneous f64 path.
+
+Median of 100 runs on a quiet Linux x86_64 workstation, Dart SDK
+3.11.4. Full table and reproduction instructions in `BENCHMARKS.md`.
+
+| Workload       | 0.7.0 AOT | 0.8.0 AOT | AOT speedup | 0.7.0 Wasm | 0.8.0 Wasm | Wasm speedup |
+|----------------|----------:|----------:|------------:|-----------:|-----------:|-------------:|
+| integer_heavy  |   158.5 ms|   149.4 ms|        1.06×|     83.3 ms|     65.2 ms|         1.28×|
+| float_heavy    |   183.8 ms|   173.7 ms|        1.06×|     92.6 ms|     74.2 ms|         1.25×|
+| mixed          |    1343 ms|    1087 ms|        1.24×|    593.5 ms|    425.4 ms|         1.40×|
+
+Wins come from three changes: capture-based number parsing (one
+allocation per token instead of a per-character interpolation chain),
+capture-based string runs (one substring slice in the unescaped fast
+path instead of O(n) per-character allocations), and elimination of
+the redundant leading `_ws` in `_lex` (every token paid a leading skip
+that the previous token's trailing skip had already consumed). The
+combinator architecture's affinity for Wasm codegen surfaces in the
+Wasm column — the `mixed` workload composes all four optimizations
+(numbers, strings, dispatch, lex) and shows the largest relative win.
+
+See `tool/bench/json_bench.dart` for the harness and `BENCHMARKS.md`
+for the full numbers including per-byte normalization.
 
 ## 0.7.0
 
