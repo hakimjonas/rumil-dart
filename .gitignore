@@ -11,6 +11,8 @@ build/
 *.mjs
 *.wasm.map
 *.support.js
+# Tracked Wasm runner scripts under tool/ are sources, not artifacts.
+!**/tool/*.mjs
 
 # IDE
 .idea/
