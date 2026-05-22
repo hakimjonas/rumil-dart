@@ -39,22 +39,56 @@ final class JsonBool extends JsonValue {
   String toString() => '$value';
 }
 
-/// JSON number (stored as double).
-final class JsonNumber extends JsonValue {
-  /// The numeric value.
-  final double value;
+/// JSON integer-shaped number.
+///
+/// Tokens with no decimal point and no exponent that fit in Dart's
+/// [int]. Matches `dart:convert`'s classification rule: tokens whose
+/// numeric value is an integer in `int` range parse to [int].
+///
+/// Equality with [JsonDouble] is `false` — `JsonInt(1) == JsonDouble(1.0)`
+/// evaluates to `false`. Matches serde_json's `Number` enum, Jackson's
+/// `NumericNode` hierarchy, and circe's `JsonNumber.fold` discrimination.
+/// The source token shape is preserved through the AST.
+final class JsonInt extends JsonValue {
+  /// The integer value.
+  final int value;
 
-  /// Creates a number value.
-  const JsonNumber(this.value);
+  /// Creates an integer value.
+  const JsonInt(this.value);
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is JsonNumber && other.value == value;
+      identical(this, other) || other is JsonInt && other.value == value;
   @override
   int get hashCode => value.hashCode;
   @override
-  String toString() =>
-      value == value.truncateToDouble() ? value.toInt().toString() : '$value';
+  String toString() => '$value';
+}
+
+/// JSON floating-point number.
+///
+/// Tokens with a decimal point, an exponent, or integer-shaped tokens
+/// whose magnitude exceeds Dart's [int] range. Matches `dart:convert`'s
+/// fallback to [double] for big integers.
+///
+/// Equality with [JsonInt] is `false` — `JsonInt(1) == JsonDouble(1.0)`
+/// evaluates to `false`. The source token shape is preserved: `1.0`
+/// parses to `JsonDouble(1.0)` and serializes back to `'1.0'`, not
+/// `'1'`.
+final class JsonDouble extends JsonValue {
+  /// The floating-point value.
+  final double value;
+
+  /// Creates a floating-point value.
+  const JsonDouble(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is JsonDouble && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
+  @override
+  String toString() => '$value';
 }
 
 /// JSON string.

@@ -21,7 +21,7 @@ void main() {
     ),
   );
   final person = decoder.decode(
-    const JsonObject({'name': JsonString('Alice'), 'age': JsonNumber(30)}),
+    const JsonObject({'name': JsonString('Alice'), 'age': JsonInt(30)}),
   );
   print('${person.name}, age ${person.age}');
 }

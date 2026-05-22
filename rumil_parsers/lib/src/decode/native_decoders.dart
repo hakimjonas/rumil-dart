@@ -11,12 +11,15 @@ import '../yaml_resolve.dart';
 
 /// Convert a [JsonValue] to native Dart types.
 ///
-/// Numbers that are whole are returned as [int], others as [double].
+/// `JsonInt` becomes [int] (preserved exactly even when above 2^53;
+/// no lossy round-trip through [double]); `JsonDouble` becomes [double].
+/// The discrimination is made at parse time and carried through the
+/// AST, so this conversion is one match per node.
 Object? jsonToNative(JsonValue v) => switch (v) {
   JsonNull() => null,
   JsonBool(:final value) => value,
-  JsonNumber(:final value) =>
-    value == value.truncateToDouble() ? value.toInt() : value,
+  JsonInt(:final value) => value,
+  JsonDouble(:final value) => value,
   JsonString(:final value) => value,
   JsonArray(:final elements) => [for (final e in elements) jsonToNative(e)],
   JsonObject(:final fields) => {

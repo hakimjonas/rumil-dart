@@ -60,9 +60,12 @@ final Parser<ParseError, JsonValue> _jsonNumber = _lex(
                       final fracStr = frac != null ? '.${frac.join()}' : '';
                       final expStr =
                           exp != null ? 'e${exp.$1 ?? ''}${exp.$2.join()}' : '';
-                      return JsonNumber(
-                        double.parse('$sign$intPart$fracStr$expStr'),
-                      );
+                      final slice = '$sign$intPart$fracStr$expStr';
+                      if (frac == null && exp == null) {
+                        final i = int.tryParse(slice);
+                        if (i != null) return JsonInt(i) as JsonValue;
+                      }
+                      return JsonDouble(double.parse(slice)) as JsonValue;
                     }),
               ),
         ),

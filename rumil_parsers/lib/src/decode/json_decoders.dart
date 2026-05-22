@@ -46,20 +46,34 @@ const AstStruct<JsonValue> jsonStruct = _JsonStruct();
 
 // ---- Implementations ----
 
+/// Decoder for JSON integer-shaped numbers.
+///
+/// Accepts both [JsonInt] (returned directly) and [JsonDouble] (lossy
+/// narrowing via `value.toInt()` — the fractional part is discarded).
+/// Matches the pre-0.8.0 behaviour on edge cases where the value was
+/// stored as a double but the consumer wanted an int.
 final class _JsonInt implements AstDecoder<JsonValue, int> {
   const _JsonInt();
   @override
   int decode(JsonValue value) => switch (value) {
-    JsonNumber(:final value) => value.toInt(),
+    JsonInt(:final value) => value,
+    JsonDouble(:final value) => value.toInt(),
     _ => throw DecodeException('Expected number, got ${value.runtimeType}'),
   };
 }
 
+/// Decoder for JSON floating-point numbers.
+///
+/// Accepts both [JsonDouble] (returned directly) and [JsonInt]
+/// (widening via `value.toDouble()` — exact for values up to 2^53,
+/// lossy beyond). Matches the pre-0.8.0 behaviour where any number
+/// could be read as a double.
 final class _JsonDouble implements AstDecoder<JsonValue, double> {
   const _JsonDouble();
   @override
   double decode(JsonValue value) => switch (value) {
-    JsonNumber(:final value) => value,
+    JsonDouble(:final value) => value,
+    JsonInt(:final value) => value.toDouble(),
     _ => throw DecodeException('Expected number, got ${value.runtimeType}'),
   };
 }

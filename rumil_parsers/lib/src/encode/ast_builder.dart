@@ -19,8 +19,6 @@ abstract interface class AstBuilder<AST> {
   AST fromString(String s);
 
   /// Create a number node from an integer.
-  ///
-  /// For JSON, integers above 2^53 lose precision (JSON numbers are doubles).
   AST fromInt(int n);
 
   /// Create a number node from a double.
@@ -83,9 +81,9 @@ final class _JsonAstBuilder implements AstBuilder<JsonValue> {
   @override
   JsonValue fromString(String s) => JsonString(s);
   @override
-  JsonValue fromInt(int n) => JsonNumber(n.toDouble());
+  JsonValue fromInt(int n) => JsonInt(n);
   @override
-  JsonValue fromDouble(double n) => JsonNumber(n);
+  JsonValue fromDouble(double n) => JsonDouble(n);
   @override
   JsonValue fromBool(bool b) => JsonBool(b);
   @override

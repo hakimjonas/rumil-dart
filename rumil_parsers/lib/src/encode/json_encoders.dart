@@ -77,8 +77,8 @@ String serializeJson(
 String _compact(JsonValue value, bool sortKeys) => switch (value) {
   JsonNull() => 'null',
   JsonBool(:final value) => '$value',
-  JsonNumber(:final value) =>
-    value == value.truncateToDouble() ? value.toInt().toString() : '$value',
+  JsonInt(:final value) => '$value',
+  JsonDouble(:final value) => _doubleString(value),
   JsonString(:final value) => '"${escapeJson(value)}"',
   JsonArray(:final elements) =>
     '[${elements.map((e) => _compact(e, sortKeys)).join(',')}]',
@@ -97,8 +97,8 @@ String _pretty(JsonValue value, String indent, bool sortKeys, int depth) {
   return switch (value) {
     JsonNull() => 'null',
     JsonBool(:final value) => '$value',
-    JsonNumber(:final value) =>
-      value == value.truncateToDouble() ? value.toInt().toString() : '$value',
+    JsonInt(:final value) => '$value',
+    JsonDouble(:final value) => _doubleString(value),
     JsonString(:final value) => '"${escapeJson(value)}"',
     JsonArray(:final elements) =>
       elements.isEmpty
@@ -117,18 +117,31 @@ String _pretty(JsonValue value, String indent, bool sortKeys, int depth) {
   };
 }
 
+/// Render a [JsonDouble] value in source-shape-preserving form.
+///
+/// An integer-valued [double] (e.g. parsed from `1.0`) renders with a
+/// trailing `.0` so it round-trips as `JsonDouble`, not `JsonInt`. A
+/// non-integer-valued double renders via Dart's default `toString()`.
+/// Non-finite values (`NaN`, `Infinity`) are not produced by the parser
+/// — RFC 8259 forbids them — but if a consumer constructs one
+/// programmatically the encoder lets Dart's default toString handle it.
+String _doubleString(double value) =>
+    value.isFinite && value == value.truncateToDouble()
+        ? '${value.toInt()}.0'
+        : '$value';
+
 // ---- Implementations ----
 
 final class _JsonIntEncoder implements AstEncoder<int, JsonValue> {
   const _JsonIntEncoder();
   @override
-  JsonValue encode(int value) => JsonNumber(value.toDouble());
+  JsonValue encode(int value) => JsonInt(value);
 }
 
 final class _JsonDoubleEncoder implements AstEncoder<double, JsonValue> {
   const _JsonDoubleEncoder();
   @override
-  JsonValue encode(double value) => JsonNumber(value);
+  JsonValue encode(double value) => JsonDouble(value);
 }
 
 final class _JsonStringEncoder implements AstEncoder<String, JsonValue> {

@@ -23,7 +23,13 @@ Parser<JsonValue> _buildTypedJsonParser() {
               .optional())
       .flatten()
       .trim()
-      .map<JsonValue>((String s) => JsonNumber(double.parse(s)));
+      .map<JsonValue>((String s) {
+        if (!s.contains('.') && !s.contains('e') && !s.contains('E')) {
+          final i = int.tryParse(s);
+          if (i != null) return JsonInt(i);
+        }
+        return JsonDouble(double.parse(s));
+      });
 
   final jsonStringContent = (char('\\') & any() | char('"').neg()).star();
 
