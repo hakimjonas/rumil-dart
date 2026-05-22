@@ -61,10 +61,34 @@ void main() {
     });
 
     test('numbers', () {
-      expect(serializeJson(const JsonNumber(42)), '42');
-      expect(serializeJson(const JsonNumber(3.14)), '3.14');
-      expect(serializeJson(const JsonNumber(-0.5)), '-0.5');
-      expect(serializeJson(const JsonNumber(0)), '0');
+      expect(serializeJson(const JsonInt(42)), '42');
+      expect(serializeJson(const JsonDouble(3.14)), '3.14');
+      expect(serializeJson(const JsonDouble(-0.5)), '-0.5');
+      expect(serializeJson(const JsonInt(0)), '0');
+    });
+
+    test('integer-valued JsonDouble preserves source token shape', () {
+      // Round-trip preserves the `.0`: parsed as JsonDouble, serialised
+      // as `'1.0'`. Pre-0.8.0 collapsed this to `'1'`, a subtle
+      // round-trip lie under the flattened representation.
+      expect(serializeJson(const JsonDouble(1.0)), '1.0');
+      expect(serializeJson(const JsonDouble(-2.0)), '-2.0');
+    });
+
+    test('round-trip preserves int-vs-float distinction', () {
+      final intRoundTrip = serializeJson(_json('1'));
+      final doubleRoundTrip = serializeJson(_json('1.0'));
+      expect(intRoundTrip, '1');
+      expect(doubleRoundTrip, '1.0');
+    });
+
+    test('big integer round-trips exactly via JsonInt', () {
+      // 2^53 + 1 cannot be represented exactly as a double. The split
+      // AST stores it in `int`, so the round-trip preserves the value
+      // even though `dart:convert` on the web platform would lose it.
+      final v = _json('9007199254740993');
+      expect(v, isA<JsonInt>());
+      expect(serializeJson(v), '9007199254740993');
     });
 
     test('null and booleans', () {
@@ -328,12 +352,12 @@ message Person {
 
   group('Native decoders', () {
     test('jsonToNative preserves int', () {
-      expect(jsonToNative(const JsonNumber(42)), 42);
-      expect(jsonToNative(const JsonNumber(42)), isA<int>());
+      expect(jsonToNative(const JsonInt(42)), 42);
+      expect(jsonToNative(const JsonInt(42)), isA<int>());
     });
 
     test('jsonToNative preserves double', () {
-      expect(jsonToNative(const JsonNumber(3.14)), 3.14);
+      expect(jsonToNative(const JsonDouble(3.14)), 3.14);
     });
 
     test('jsonToNative null', () {
@@ -343,7 +367,7 @@ message Person {
     test('jsonToNative nested', () {
       final result = jsonToNative(
         const JsonObject({
-          'a': JsonArray([JsonNumber(1), JsonString('two')]),
+          'a': JsonArray([JsonInt(1), JsonString('two')]),
         }),
       );
       expect(result, {
@@ -387,8 +411,8 @@ message Person {
     test('nativeToAst primitives', () {
       expect(nativeToAst(null, jsonBuilder), isA<JsonNull>());
       expect(nativeToAst(true, jsonBuilder), isA<JsonBool>());
-      expect(nativeToAst(42, jsonBuilder), isA<JsonNumber>());
-      expect(nativeToAst(3.14, jsonBuilder), isA<JsonNumber>());
+      expect(nativeToAst(42, jsonBuilder), isA<JsonInt>());
+      expect(nativeToAst(3.14, jsonBuilder), isA<JsonDouble>());
       expect(nativeToAst('hi', jsonBuilder), isA<JsonString>());
     });
   });

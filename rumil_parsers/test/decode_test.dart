@@ -5,10 +5,18 @@ void main() {
   // ---- JSON decoders ----
 
   group('JSON primitive decoders', () {
-    test('int', () => expect(jsonInt.decode(const JsonNumber(42)), 42));
+    test('int', () => expect(jsonInt.decode(const JsonInt(42)), 42));
     test(
       'double',
-      () => expect(jsonDouble.decode(const JsonNumber(3.14)), 3.14),
+      () => expect(jsonDouble.decode(const JsonDouble(3.14)), 3.14),
+    );
+    test(
+      'jsonInt narrows JsonDouble (lossy)',
+      () => expect(jsonInt.decode(const JsonDouble(3.14)), 3),
+    );
+    test(
+      'jsonDouble widens JsonInt',
+      () => expect(jsonDouble.decode(const JsonInt(5)), 5.0),
     );
     test(
       'string',
@@ -34,13 +42,13 @@ void main() {
   group('JSON composite decoders', () {
     test('list of int', () {
       final decoder = jsonListOf(jsonInt);
-      const value = JsonArray([JsonNumber(1), JsonNumber(2), JsonNumber(3)]);
+      const value = JsonArray([JsonInt(1), JsonInt(2), JsonInt(3)]);
       expect(decoder.decode(value), [1, 2, 3]);
     });
 
     test('nullable present', () {
       final decoder = jsonNullableOf(jsonInt);
-      expect(decoder.decode(const JsonNumber(42)), 42);
+      expect(decoder.decode(const JsonInt(42)), 42);
     });
 
     test('nullable absent', () {
@@ -50,7 +58,7 @@ void main() {
 
     test('map of string to int', () {
       final decoder = jsonMapOf(jsonInt);
-      const value = JsonObject({'a': JsonNumber(1), 'b': JsonNumber(2)});
+      const value = JsonObject({'a': JsonInt(1), 'b': JsonInt(2)});
       expect(decoder.decode(value), {'a': 1, 'b': 2});
     });
   });
@@ -66,7 +74,7 @@ void main() {
 
       const value = JsonObject({
         'name': JsonString('Alice'),
-        'age': JsonNumber(30),
+        'age': JsonInt(30),
       });
 
       final result = decoder.decode(value);
@@ -142,7 +150,7 @@ void main() {
   group('JSON decoder map', () {
     test('map transforms result', () {
       final decoder = jsonInt.map((n) => n * 2);
-      expect(decoder.decode(const JsonNumber(21)), 42);
+      expect(decoder.decode(const JsonInt(21)), 42);
     });
   });
 
