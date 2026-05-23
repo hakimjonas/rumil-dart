@@ -1,9 +1,12 @@
 ## 0.8.0
 
-JSON parser, principled and fast. Three logical chunks ship together:
-the HCL decoder fix originally scoped as 0.7.1, a JSON AST split
-(`JsonNumber` → `JsonInt | JsonDouble`), and a JSON parser perf
-overhaul.
+JSON parser, principled and fast. The HCL number AST follows the same
+split. Five logical chunks ship together: the HCL decoder fix
+originally scoped as 0.7.1, a JSON AST split (`JsonNumber` →
+`JsonInt | JsonDouble`), the matching HCL AST split (`HclNumber` →
+`HclInt | HclDouble`), a JSON parser perf overhaul, and two latent
+correctness fixes (`common.floatingPoint` precision, YAML integer
+overflow).
 
 ### Changed (breaking)
 
@@ -35,6 +38,18 @@ overhaul.
   narrows via `value.toInt()`, `jsonDouble.decode(JsonInt)` widens via
   `value.toDouble()`. Documented on each decoder.
 
+- **`HclNumber` is now a sealed sum of `HclInt(int)` and
+  `HclDouble(double)`,** mirroring the JSON AST split. The previous
+  single-`HclNumber(num)` representation forced consumers to dispatch
+  on `value is int` at every read; the new shape preserves the
+  discrimination at parse time. Integer-shaped tokens that overflow
+  Dart's `int` fall back to `HclDouble`, matching JSON's rule.
+  Equality across variants is `false`. Pattern matching on `HclNumber`
+  becomes pattern matching on `HclInt` or `HclDouble`. Round-trip
+  preserves source token shape: `1` parses as `HclInt(1)` and
+  serializes as `'1'`; `1.0` parses as `HclDouble(1.0)` and serializes
+  as `'1.0'` (was `'1'` under the flattened representation).
+
 ### Fixed
 
 - **HCL decoder is now consistent across N=1 vs N≥2 same-labeled
@@ -47,6 +62,20 @@ overhaul.
   previous behavior threw away structural information from the parser
   AST and made common Terraform patterns (one `terraform`, one
   `provider`, single `variable`) require defensive shape checks.
+
+- **`common.floatingPoint()` precision.** The helper previously
+  computed `value * math.pow(10, exp)` for tokens with an exponent;
+  that multiplication rounded before assembly and dropped the smallest
+  positive subnormal (`5e-324`) to `0.0`. Now delegates to
+  `double.parse` on the captured source slice, which uses the
+  platform's correctly-rounded conversion. YAML inherits the fix
+  automatically since it consumes `floatingPoint()`.
+
+- **YAML integer overflow.** `_yamlInteger` previously called
+  `int.parse(...)` (via `common.signedInt()`), which throws on tokens
+  exceeding Dart's `int` range. Now uses `int.tryParse` + fallback to
+  `YamlFloat`, matching JSON's big-integer rule. Affects YAML
+  documents with very large integer literals (e.g. `2^63` or beyond).
 
 ### Performance
 
