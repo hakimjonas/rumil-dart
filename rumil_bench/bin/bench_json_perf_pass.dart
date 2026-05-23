@@ -43,10 +43,5 @@ void main() {
 
   print('');
   print('mixed (${mixed.length} bytes):');
-  benchWithSize(
-    'rumil',
-    () => parseJson(mixed),
-    mixed.length,
-    iterations: 100,
-  );
+  benchWithSize('rumil', () => parseJson(mixed), mixed.length, iterations: 100);
 }
