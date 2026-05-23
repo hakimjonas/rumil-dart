@@ -1,8 +1,6 @@
 /// Shared parser utilities for format parsers.
 library;
 
-import 'dart:math' as math;
-
 import 'package:rumil/rumil.dart';
 
 /// Hex digit (0-9, a-f, A-F).
@@ -30,27 +28,36 @@ Parser<ParseError, int> unsignedInt() =>
     digit().many1.map((ds) => int.parse(ds.join()));
 
 /// Signed integer.
-Parser<ParseError, int> signedInt() => sign()
-    .zip(digit().many1)
-    .map((pair) => pair.$1 * int.parse(pair.$2.join()));
+///
+/// Captures the matched source slice in one pass, then parses via
+/// [int.parse]. Strict on overflow: if the slice exceeds Dart's `int`
+/// range the underlying parse throws. Consumers that need a fallback
+/// (e.g. YAML's big-int → float) handle the discrimination at the
+/// parser layer.
+Parser<ParseError, int> signedInt() => (char('+') | char('-')).optional
+    .skipThen(digit().many1)
+    .as<void>(null)
+    .capture
+    .map(int.parse);
 
 /// Floating point number with optional sign, decimal, and exponent.
-Parser<ParseError, double> floatingPoint() => sign().flatMap(
-  (s) => digit().many1.flatMap(
-    (whole) => char('.')
-        .skipThen(digit().many1)
-        .optional
-        .flatMap(
-          (frac) => oneOf('eE').skipThen(signedInt()).optional.map((exp) {
-            final base =
-                frac != null ? '${whole.join()}.${frac.join()}' : whole.join();
-            final value = double.parse(base);
-            final withExp = exp != null ? value * math.pow(10, exp) : value;
-            return withExp * s;
-          }),
-        ),
-  ),
-);
+///
+/// Captures the matched source slice in one pass, then parses via
+/// [double.parse]. Delegating to `double.parse` preserves IEEE 754
+/// precision in exponent edge cases that the prior `value * pow(10,
+/// exp)` shape lost (e.g. `1e-323` rounds before the multiplication).
+Parser<ParseError, double> floatingPoint() => (char('+') | char('-')).optional
+    .skipThen(digit().many1)
+    .skipThen(char('.').skipThen(digit().many1).optional)
+    .skipThen(
+      oneOf('eE')
+          .skipThen((char('+') | char('-')).optional)
+          .skipThen(digit().many1)
+          .optional,
+    )
+    .as<void>(null)
+    .capture
+    .map(double.parse);
 
 /// Horizontal whitespace (space/tab).
 Parser<ParseError, String> hspace() =>
