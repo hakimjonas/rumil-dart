@@ -48,9 +48,10 @@ Future<void> _runParent() async {
       final out = result.stdout as String;
       final err = result.stderr as String;
       if (result.exitCode != 0) {
-        final reason = err.contains('Stack Overflow')
-            ? 'StackOverflow'
-            : 'failed (exit ${result.exitCode})';
+        final reason =
+            err.contains('Stack Overflow')
+                ? 'StackOverflow'
+                : 'failed (exit ${result.exitCode})';
         print(
           '  ${_pad('$depth', 10)}  ${_pad(parser, 10)}  '
           '${_pad(reason, 12)}  ${_pad('—', 8)}',
@@ -76,9 +77,7 @@ void _runChild(String parser, int depth) {
   final Parser<ParseError, int> p;
   switch (parser) {
     case 'pratt':
-      p = pratt<int>(num, [
-        InfixLeft(char('+'), 10, (int a, int b) => a + b),
-      ]);
+      p = pratt<int>(num, [InfixLeft(char('+'), 10, (int a, int b) => a + b)]);
     case 'chainl':
       final addOp = char('+').map((_) => (int a, int b) => a + b);
       p = num.chainl1(addOp);

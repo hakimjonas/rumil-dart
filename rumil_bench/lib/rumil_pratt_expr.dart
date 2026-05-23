@@ -14,8 +14,10 @@ library;
 import 'package:rumil/rumil.dart';
 import 'package:rumil_expressions/rumil_expressions.dart';
 
-final Parser<ParseError, String> _ws =
-    satisfy((String c) => c == ' ' || c == '\t', 'ws').skipMany.as<String>('');
+final Parser<ParseError, String> _ws = satisfy(
+  (String c) => c == ' ' || c == '\t',
+  'ws',
+).skipMany.as<String>('');
 
 Parser<ParseError, A> _lex<A>(Parser<ParseError, A> p) =>
     _ws.skipThen(p).thenSkip(_ws);
@@ -27,21 +29,19 @@ final Parser<ParseError, Expr> _number = _lex(
 );
 
 final Parser<ParseError, Expr> _atom = _number.or(
-  _lex(char('('))
-      .skipThen(defer<ParseError, Expr>(() => _expr))
-      .thenSkip(_lex(char(')'))),
+  _lex(
+    char('('),
+  ).skipThen(defer<ParseError, Expr>(() => _expr)).thenSkip(_lex(char(')'))),
 );
 
-final Parser<ParseError, Expr> _expr = pratt<Expr>(
-  defer<ParseError, Expr>(() => _atom),
-  [
-    InfixLeft(_lex(char('+')), 10, (Expr a, Expr b) => BinaryOp('+', a, b)),
-    InfixLeft(_lex(char('-')), 10, (Expr a, Expr b) => BinaryOp('-', a, b)),
-    InfixLeft(_lex(char('*')), 20, (Expr a, Expr b) => BinaryOp('*', a, b)),
-    InfixLeft(_lex(char('/')), 20, (Expr a, Expr b) => BinaryOp('/', a, b)),
-    InfixLeft(_lex(char('%')), 20, (Expr a, Expr b) => BinaryOp('%', a, b)),
-  ],
-);
+final Parser<ParseError, Expr> _expr =
+    pratt<Expr>(defer<ParseError, Expr>(() => _atom), [
+      InfixLeft(_lex(char('+')), 10, (Expr a, Expr b) => BinaryOp('+', a, b)),
+      InfixLeft(_lex(char('-')), 10, (Expr a, Expr b) => BinaryOp('-', a, b)),
+      InfixLeft(_lex(char('*')), 20, (Expr a, Expr b) => BinaryOp('*', a, b)),
+      InfixLeft(_lex(char('/')), 20, (Expr a, Expr b) => BinaryOp('/', a, b)),
+      InfixLeft(_lex(char('%')), 20, (Expr a, Expr b) => BinaryOp('%', a, b)),
+    ]);
 
 /// Parse and evaluate an expression using the Pratt-based parser.
 Object evaluatePratt(

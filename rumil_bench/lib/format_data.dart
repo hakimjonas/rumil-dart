@@ -274,9 +274,13 @@ String markdownLarge() {
   sb.writeln('# Large Document\n');
   for (var section = 0; section < 20; section++) {
     sb.writeln('## Section $section\n');
-    sb.writeln('Introduction paragraph for section $section with **bold text**, '
-        '*italic text*, and `inline code`. Also a [link](https://example.com/$section "Title $section").\n');
-    sb.writeln('> A blockquote in section $section with *emphasis* and **strong**.');
+    sb.writeln(
+      'Introduction paragraph for section $section with **bold text**, '
+      '*italic text*, and `inline code`. Also a [link](https://example.com/$section "Title $section").\n',
+    );
+    sb.writeln(
+      '> A blockquote in section $section with *emphasis* and **strong**.',
+    );
     sb.writeln('> Second line of the blockquote.\n');
     sb.writeln('```dart');
     sb.writeln('void main() {');
@@ -284,7 +288,9 @@ String markdownLarge() {
     sb.writeln('}');
     sb.writeln('```\n');
     for (var item = 0; item < 5; item++) {
-      sb.writeln('- List item $item in section $section with `code` and [link](#s$section)');
+      sb.writeln(
+        '- List item $item in section $section with `code` and [link](#s$section)',
+      );
     }
     sb.writeln();
     for (var item = 1; item <= 3; item++) {
