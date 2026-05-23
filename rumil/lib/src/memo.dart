@@ -8,8 +8,7 @@ import 'result.dart';
 /// Each [rule] call creates a unique instance. Identity is by reference.
 extension type const MemoKey<E, A>._(
   /// The identity object used for reference-based memo table lookups.
-  Object
-  id
+  Object id
 ) {
   /// Creates a new unique key.
   factory MemoKey() => const MemoKey._(Object());
