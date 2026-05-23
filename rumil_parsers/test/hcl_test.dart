@@ -691,4 +691,46 @@ resource "c" "d" { x = 2 }
       expect(s, contains('ami = "abc"'));
     });
   });
+
+  group('HCL number AST split', () {
+    test('integer parses as HclInt', () {
+      final d = doc_(parseHcl('foo = 8080\n'));
+      expect(_get(d, 'foo'), const HclInt(8080));
+    });
+
+    test('decimal parses as HclDouble', () {
+      final d = doc_(parseHcl('foo = 3.14\n'));
+      expect(_get(d, 'foo'), const HclDouble(3.14));
+    });
+
+    test('integer-valued decimal stays HclDouble (source shape preserved)', () {
+      final d = doc_(parseHcl('foo = 1.0\n'));
+      final v = _get(d, 'foo');
+      expect(v, isA<HclDouble>());
+      expect((v as HclDouble).value, 1.0);
+    });
+
+    test('integer overflow falls back to HclDouble', () {
+      // 99999999999999999999 exceeds 2^63 - 1.
+      final d = doc_(parseHcl('foo = 99999999999999999999\n'));
+      expect(_get(d, 'foo'), isA<HclDouble>());
+    });
+
+    test('round-trip preserves int and double shapes', () {
+      final d1 = doc_(parseHcl('a = 1\nb = 1.0\n'));
+      final s = serializeHcl(d1);
+      expect(s, contains('a = 1\n'));
+      expect(s, contains('b = 1.0\n'));
+      final d2 = doc_(parseHcl(s));
+      expect(_get(d2, 'a'), const HclInt(1));
+      expect(_get(d2, 'b'), const HclDouble(1.0));
+    });
+
+    test('HclInt(1) != HclDouble(1.0)', () {
+      // Discrimination is preserved at the AST equality layer; matches
+      // JSON / serde_json / Jackson.
+      expect(const HclInt(1) == const HclDouble(1.0), isFalse);
+      expect(const HclDouble(1.0) == const HclInt(1), isFalse);
+    });
+  });
 }
