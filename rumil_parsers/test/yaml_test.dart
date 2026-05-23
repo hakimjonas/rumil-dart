@@ -48,6 +48,15 @@ void main() {
       expect((v as YamlInteger).value, -17);
     });
 
+    test('big integer overflow falls back to YamlFloat', () {
+      // 9223372036854775808 == 2^63, the first value that overflows
+      // Dart's signed 64-bit `int`. Previously `int.parse` threw out
+      // of `_yamlInteger`; now the parser captures the source slice
+      // and falls back to `YamlFloat`, matching JSON's rule.
+      final v = doc_(parseYaml('9223372036854775808'));
+      expect(v, isA<YamlFloat>());
+    });
+
     test('float', () {
       final v = doc_(parseYaml('3.14'));
       expect((v as YamlFloat).value, 3.14);

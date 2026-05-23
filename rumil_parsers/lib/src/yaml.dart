@@ -126,14 +126,26 @@ final Parser<ParseError, YamlValue> _yamlOctalInteger = string('0o')
       (digits) => YamlInteger(int.parse(digits.join(), radix: 8)),
     );
 
+/// Decimal integer with sign. Captures the source slice so big
+/// integers that overflow Dart's [int] can fall back to [YamlFloat],
+/// matching JSON's rule. Without the fallback, tokens like `2^63 + 1`
+/// would throw out of [int.parse].
+final Parser<ParseError, YamlValue> _yamlSignedDecimalInteger = (char('+') |
+        char('-'))
+    .optional
+    .skipThen(digit().many1)
+    .as<void>(null)
+    .capture
+    .thenSkip(oneOf('.eE').notFollowedBy)
+    .thenSkip(_wordBoundary)
+    .map<YamlValue>((slice) {
+      final i = int.tryParse(slice);
+      if (i != null) return YamlInteger(i);
+      return YamlFloat(double.parse(slice));
+    });
+
 final Parser<ParseError, YamlValue> _yamlInteger =
-    _yamlHexInteger |
-    _yamlOctalInteger |
-    common
-        .signedInt()
-        .thenSkip(oneOf('.eE').notFollowedBy)
-        .thenSkip(_wordBoundary)
-        .map<YamlValue>(YamlInteger.new);
+    _yamlHexInteger | _yamlOctalInteger | _yamlSignedDecimalInteger;
 
 final Parser<ParseError, YamlValue> _yamlSpecialFloat = keywords<YamlValue>({
   '.inf': const YamlFloat(double.infinity),
