@@ -20,7 +20,7 @@ void main() {
 
     test('number', () {
       final d = doc_(parseHcl('port = 8080\n'));
-      expect(_get(d, 'port'), const HclNumber(8080));
+      expect(_get(d, 'port'), const HclInt(8080));
     });
 
     test('bool', () {
@@ -56,7 +56,7 @@ void main() {
     test('multiple attributes', () {
       final d = doc_(parseHcl('name = "test"\nport = 8080\n'));
       expect(_get(d, 'name'), const HclString('test'));
-      expect(_get(d, 'port'), const HclNumber(8080));
+      expect(_get(d, 'port'), const HclInt(8080));
     });
   });
 
@@ -75,7 +75,7 @@ void main() {
       final d = doc_(parseHcl('locals {\n  x = 1\n}\n'));
       final block = _get(d, 'locals') as HclBlock;
       expect(block.labels, isEmpty);
-      expect(block.body['x'], const HclNumber(1));
+      expect(block.body['x'], const HclInt(1));
     });
 
     test('nested blocks', () {
@@ -168,29 +168,29 @@ resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
   group('HCL scientific notation', () {
     test('integer exponent', () {
       final d = doc_(parseHcl('v = 1e10\n'));
-      expect((_get(d, 'v') as HclNumber).value, 1e10);
+      expect((_get(d, 'v') as HclDouble).value, 1e10);
     });
 
     test('float exponent', () {
       final d = doc_(parseHcl('v = 1.5e3\n'));
-      expect((_get(d, 'v') as HclNumber).value, 1.5e3);
+      expect((_get(d, 'v') as HclDouble).value, 1.5e3);
     });
 
     test('negative exponent', () {
       final d = doc_(parseHcl('v = 1.5e-3\n'));
-      expect((_get(d, 'v') as HclNumber).value, 1.5e-3);
+      expect((_get(d, 'v') as HclDouble).value, 1.5e-3);
     });
 
     test('positive exponent sign', () {
       final d = doc_(parseHcl('v = 1.5E+3\n'));
-      expect((_get(d, 'v') as HclNumber).value, 1.5e3);
+      expect((_get(d, 'v') as HclDouble).value, 1.5e3);
     });
 
     test('negative number with exponent', () {
       final d = doc_(parseHcl('v = -1e10\n'));
       final unary = _get(d, 'v') as HclUnaryOp;
       expect(unary.op, '-');
-      expect((unary.operand as HclNumber).value, 1e10);
+      expect((unary.operand as HclDouble).value, 1e10);
     });
   });
 
@@ -239,15 +239,15 @@ resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
       final d = doc_(parseHcl('v = 1 + 2\n'));
       final op = _get(d, 'v') as HclBinaryOp;
       expect(op.op, '+');
-      expect(op.left, const HclNumber(1));
-      expect(op.right, const HclNumber(2));
+      expect(op.left, const HclInt(1));
+      expect(op.right, const HclInt(2));
     });
 
     test('precedence: multiply before add', () {
       final d = doc_(parseHcl('v = 1 + 2 * 3\n'));
       final add = _get(d, 'v') as HclBinaryOp;
       expect(add.op, '+');
-      expect(add.left, const HclNumber(1));
+      expect(add.left, const HclInt(1));
       final mul = add.right as HclBinaryOp;
       expect(mul.op, '*');
     });
@@ -344,7 +344,7 @@ resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
       final d = doc_(parseHcl('v = list[0]\n'));
       final idx = _get(d, 'v') as HclIndex;
       expect(idx.collection, const HclReference('list'));
-      expect(idx.index, const HclNumber(0));
+      expect(idx.index, const HclInt(0));
     });
 
     test('chained access', () {
@@ -352,7 +352,7 @@ resource "aws_s3_bucket" "data" { bucket = "my-bucket" }
       final ga = _get(d, 'v') as HclGetAttr;
       expect(ga.name, 'd');
       final idx = ga.object as HclIndex;
-      expect(idx.index, const HclNumber(0));
+      expect(idx.index, const HclInt(0));
     });
 
     test('full splat', () {
@@ -668,7 +668,7 @@ resource "c" "d" { x = 2 }
     test('attributes', () {
       final doc = <(String, HclValue)>[
         ('name', const HclString('test')),
-        ('port', const HclNumber(8080)),
+        ('port', const HclInt(8080)),
       ];
       final s = serializeHcl(doc);
       expect(s, contains('name = "test"'));

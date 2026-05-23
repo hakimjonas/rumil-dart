@@ -135,7 +135,8 @@ Map<String, Object?> hclDocToNative(HclDocument doc) {
 /// this is a non-evaluating parser.
 Object? hclToNative(HclValue v) => switch (v) {
   HclString(:final value) => value,
-  HclNumber(:final value) => value,
+  HclInt(:final value) => value,
+  HclDouble(:final value) => value,
   HclBool(:final value) => value,
   HclNull() => null,
   HclList(:final elements) => [for (final e in elements) hclToNative(e)],

@@ -165,9 +165,9 @@ final class _HclAstBuilder implements AstBuilder<HclValue> {
   @override
   HclValue fromString(String s) => HclString(s);
   @override
-  HclValue fromInt(int n) => HclNumber(n);
+  HclValue fromInt(int n) => HclInt(n);
   @override
-  HclValue fromDouble(double n) => HclNumber(n);
+  HclValue fromDouble(double n) => HclDouble(n);
   @override
   HclValue fromBool(bool b) => HclBool(b);
   @override

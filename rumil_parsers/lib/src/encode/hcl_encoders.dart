@@ -35,8 +35,8 @@ String serializeHcl(HclDocument doc, {int indent = 2}) {
 /// Serialize a single [HclValue] to HCL text.
 String serializeHclValue(HclValue value) => switch (value) {
   HclString(:final value) => '"${escapeHcl(value)}"',
-  HclNumber(:final value) =>
-    value == value.toInt() ? value.toInt().toString() : '$value',
+  HclInt(:final value) => '$value',
+  HclDouble(:final value) => _hclDoubleString(value),
   HclBool(:final value) => '$value',
   HclNull() => 'null',
   HclList(:final elements) => '[${elements.map(serializeHclValue).join(', ')}]',
@@ -99,6 +99,14 @@ String serializeHclValue(HclValue value) => switch (value) {
     return '$op$marker\n$body\n$marker';
   }(),
 };
+
+/// Render an [HclDouble] value in source-shape-preserving form. An
+/// integer-valued [double] (e.g. parsed from `1.0`) renders with a
+/// trailing `.0` so it round-trips as [HclDouble], not [HclInt].
+String _hclDoubleString(double value) =>
+    value.isFinite && value == value.truncateToDouble()
+        ? '${value.toInt()}.0'
+        : '$value';
 
 String _serializePostfix(HclPostfixOp op) => switch (op) {
   HclPostfixGetAttr(:final name) => '.$name',

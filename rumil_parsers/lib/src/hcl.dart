@@ -324,30 +324,34 @@ final Parser<ParseError, HclValue> _hclBool = _lex(
       ).thenSkip(_notIdentCont).as<HclValue>(const HclBool(false))),
 );
 
+/// Consumes the HCL number grammar without producing values; the
+/// captured slice is classified after via [_hclNumber]. HCL's number
+/// atom does NOT consume a leading `-` — unary minus is a prefix
+/// operator handled by the expression tower.
+final Parser<ParseError, void> _hclNumberShape = digit().many1
+    .skipThen(char('.').skipThen(digit().many1).optional)
+    .skipThen(
+      oneOf('eE')
+          .skipThen((char('+') | char('-')).optional)
+          .skipThen(digit().many1)
+          .optional,
+    )
+    .as<void>(null);
+
+/// HCL number parser.
+///
+/// Captures the matched source slice in one pass, then classifies:
+/// integer-shaped tokens that fit in Dart's `int` go to [HclInt];
+/// everything else goes to [HclDouble]. Big integers that overflow
+/// `int` fall back to `HclDouble`, matching JSON's rule.
 final Parser<ParseError, HclValue> _hclNumber = _lex(
-  digit().many1.flatMap(
-    (whole) => char('.')
-        .skipThen(digit().many1)
-        .optional
-        .flatMap(
-          (frac) => oneOf('eE')
-              .skipThen(
-                (char('+') | char('-')).optional.flatMap(
-                  (sign) =>
-                      digit().many1.map((ds) => '${sign ?? ''}${ds.join()}'),
-                ),
-              )
-              .optional
-              .map((exp) {
-                final base =
-                    frac != null
-                        ? '${whole.join()}.${frac.join()}'
-                        : whole.join();
-                final str = exp != null ? '${base}e$exp' : base;
-                return HclNumber(num.parse(str)) as HclValue;
-              }),
-        ),
-  ),
+  _hclNumberShape.capture.map((slice) {
+    if (!slice.contains('.') && !slice.contains('e') && !slice.contains('E')) {
+      final i = int.tryParse(slice);
+      if (i != null) return HclInt(i) as HclValue;
+    }
+    return HclDouble(double.parse(slice));
+  }),
 );
 
 final Parser<ParseError, HclValue> _hclStringValue = _hclTemplateString;
@@ -546,7 +550,7 @@ final Parser<ParseError, HclValue Function(HclValue)> _postfixOp =
         .map(
           (n) =>
               (HclValue base) =>
-                  HclIndex(base, HclNumber(int.parse(n))) as HclValue,
+                  HclIndex(base, HclInt(int.parse(n))) as HclValue,
         )) |
     (char('.')
         .skipThen(_lex(_ident))

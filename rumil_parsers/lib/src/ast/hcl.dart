@@ -28,19 +28,43 @@ final class HclString extends HclValue {
   int get hashCode => value.hashCode;
 }
 
-/// HCL number.
-final class HclNumber extends HclValue {
-  /// The numeric value.
-  final num value;
+/// HCL integer-shaped number. Tokens with no decimal point and no
+/// exponent that fit in Dart's [int]. Integer-shaped tokens that
+/// overflow [int] fall back to [HclDouble], matching JSON's rule.
+final class HclInt extends HclValue {
+  /// The integer value.
+  final int value;
 
-  /// Creates a number value.
-  const HclNumber(this.value);
+  /// Creates an integer value.
+  const HclInt(this.value);
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is HclNumber && other.value == value;
+      identical(this, other) || other is HclInt && other.value == value;
   @override
   int get hashCode => value.hashCode;
+  @override
+  String toString() => '$value';
+}
+
+/// HCL floating-point number. Tokens with a decimal point, an
+/// exponent, or integer-shaped tokens whose magnitude exceeds Dart's
+/// [int] range. Equality across [HclInt] and [HclDouble] is `false`,
+/// matching JSON / serde_json / Jackson.
+final class HclDouble extends HclValue {
+  /// The floating-point value.
+  final double value;
+
+  /// Creates a floating-point value.
+  const HclDouble(this.value);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is HclDouble && other.value == value;
+  @override
+  int get hashCode => value.hashCode;
+  @override
+  String toString() => '$value';
 }
 
 /// HCL boolean.
