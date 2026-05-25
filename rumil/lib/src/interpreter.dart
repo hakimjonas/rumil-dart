@@ -402,251 +402,268 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
       case SkipMany<E, dynamic>(parser: final StringMatch sm):
         return _skipManyString<E>(sm.target, state) as Result<E, A>;
 
-      case final Many<E, dynamic> m:
-        return m.interpretWith(
-              <T>(Parser<E, T> inner) => _interpretMany<E, T>(inner, state),
-            )
-            as Result<E, A>;
-
-      case final Many1<E, dynamic> m1:
-        return m1.interpretWith(
-              <T>(Parser<E, T> inner) => _interpretMany1<E, T>(inner, state),
-            )
-            as Result<E, A>;
-
-      case final SkipMany<E, dynamic> sm:
-        return sm.interpretWith(
-              <T>(Parser<E, T> inner) => _interpretSkipMany<E, T>(inner, state),
-            )
-            as Result<E, A>;
-
-      case Capture<E, dynamic>(parser: Many<E, dynamic>(:final parser)):
-        return _interpretCaptureMany<E, dynamic>(parser, state, required: false)
-            as Result<E, A>;
-
-      case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
-        return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
-            as Result<E, A>;
-
-      case final Chainl1<E, A> ch:
-        return ch.interpretWith(
-          <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
-              _interpretChainl1<E, T>(elt, op, state),
-        );
-
-      case final Chainr1<E, A> ch:
-        return ch.interpretWith(
-          <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
-              _interpretChainr1<E, T>(elt, op, state),
-        );
-
-      case final Capture<E, dynamic> cap:
-        return cap.interpretWith((inner) {
-              final startOff = state.offset;
-              final r = interpretI(inner, state);
-              return switch (r) {
-                Success(:final consumed) => Success<E, String>(
-                  state.slice(startOff, startOff + consumed),
-                  consumed,
-                ),
-                Partial(:final consumed, :final errorThunk) =>
-                  Partial<E, String>(
-                    state.slice(startOff, startOff + consumed),
-                    errorThunk,
-                    consumed,
-                  ),
-                Failure(:final errorThunk, :final furthest) =>
-                  Failure<E, String>(errorThunk, furthest),
-              };
-            })
-            as Result<E, A>;
-
-      case final Optional<E, dynamic> opt:
-        return opt.interpretWith(<T>(Parser<E, T> inner) {
-              final simple = inner.isSimple;
-              final snapshot = simple ? 0 : state.save();
-              final r = interpretI<E, T>(inner, state);
-              if (r case Success<E, T>(:final value, :final consumed)) {
-                return Success<E, T?>(value, consumed);
-              }
-              if (r case Partial<E, T>(
-                :final value,
-                :final errorThunk,
-                :final consumed,
-              )) {
-                return Partial<E, T?>(value, errorThunk, consumed);
-              }
-              if (!simple) state.restore(snapshot);
-              return Success<E, T?>(null, 0);
-            })
-            as Result<E, A>;
-
-      case final Attempt<dynamic, dynamic> att:
-        return att.interpretWith((inner) {
-              final snapshot = state.save();
-              final r = interpretI(inner, state);
-              return switch (r) {
-                Success(:final value, :final consumed) =>
-                  Success<Never, Result<dynamic, dynamic>>(
-                    Success(value, consumed),
-                    0,
-                  ),
-                Partial(:final value, :final errorThunk, :final consumed) =>
-                  Success<Never, Result<dynamic, dynamic>>(
-                    Partial.eager(value, errorThunk(), consumed),
-                    0,
-                  ),
-                Failure(:final errorThunk, :final furthest) => () {
-                  state.restore(snapshot);
-                  return Success<Never, Result<dynamic, dynamic>>(
-                    Failure.eager(errorThunk(), furthest),
-                    0,
-                  );
-                }(),
-              };
-            })
-            as Result<E, A>;
-
-      case LookAhead<E, A>(:final parser):
-        final snapshot = state.save();
-        final r = interpretI<E, A>(parser, state);
-        state.restore(snapshot);
-        return switch (r) {
-          Success(:final value) => Success<E, A>(value, 0),
-          Partial(:final value, :final errorThunk) => Partial<E, A>(
-            value,
-            errorThunk,
-            0,
-          ),
-          Failure() => r,
-        };
-
-      case NotFollowedBy(:final parser):
-        final snapshot = state.save();
-        final r = interpretI(parser, state);
-        state.restore(snapshot);
-        if (r is! Failure) {
-          final loc = state.location;
-          return Failure<E, A>(
-            () => [CustomError('Unexpected success', loc) as E],
-            loc,
-          );
-        }
-        return Success<E, A>(null as A, 0);
-
-      case RecoverWith<E, A>(:final parser, :final recovery):
-        final snapshot = state.save();
-        final r = interpretI<E, A>(parser, state);
-        if (r is! Failure<E, A>) return r;
-        state.restore(snapshot);
-        // Eagerly evaluate the original failure's errors now, before further
-        // parsing mutates state. Lazy thunks may close over ParserState and
-        // read stale offsets if evaluated later (see _satisfyMany).
-        final originalErrors = r.errorThunk();
-        final r2 = interpretI<E, A>(recovery, state);
-        return switch (r2) {
-          Success<E, A>(:final value, :final consumed) => Partial<E, A>.eager(
-            value,
-            originalErrors,
-            consumed,
-          ),
-          Partial<E, A>(:final value, :final errorThunk, :final consumed) =>
-            Partial<E, A>(
-              value,
-              () => [...originalErrors, ...errorThunk()],
-              consumed,
-            ),
-          Failure<E, A>(:final errorThunk, :final furthest) => Failure<E, A>(
-            () => [...originalErrors, ...errorThunk()],
-            r.furthest.offset > furthest.offset ? r.furthest : furthest,
-          ),
-        };
-
-      case Expect<A>(:final parser, :final message):
-        final r = interpretI<ParseError, A>(parser, state);
-        if (r is Failure<ParseError, A>) {
-          return Failure<E, A>(
-            () => [CustomError(message, r.furthest) as E],
-            r.furthest,
-          );
-        }
-        return r as Result<E, A>;
-
-      case Named<A>(:final parser, :final name):
-        final r = interpretI<ParseError, A>(parser, state);
-        if (r is Failure<ParseError, A>) {
-          return Failure<E, A>(
-            () =>
-                r.errorThunk().map((ParseError e) {
-                  if (e is Unexpected) {
-                    return Unexpected(e.found, {
-                          ...e.expected,
-                          name,
-                        }, e.location)
-                        as E;
-                  }
-                  return e as E;
-                }).toList(),
-            r.furthest,
-          );
-        }
-        return r as Result<E, A>;
-
-      case Trace<E, A>(:final parser, :final label):
-        print('[TRACE] $label: trying at offset ${state.offset}');
-        final r = interpretI<E, A>(parser, state);
-        switch (r) {
-          case Success(:final consumed):
-            print('[TRACE] $label: success, consumed $consumed chars');
-          case Partial(:final consumed):
-            print('[TRACE] $label: partial, consumed $consumed chars');
-          case Failure():
-            print('[TRACE] $label: failed');
-        }
-        return r;
-
-      case Debug<E, A>(:final parser, :final label):
-        print('[DEBUG] $label: trying at offset ${state.offset}');
-        final r = interpretI<E, A>(parser, state);
-        switch (r) {
-          case Success(:final value):
-            print('[DEBUG] $label: success, parsed $value');
-          case Partial(:final value, :final errors):
-            print(
-              '[DEBUG] $label: partial, $value with ${errors.length} errors',
-            );
-          case Failure(:final errors):
-            print(
-              '[DEBUG] $label: failed with ${errors.firstOrNull ?? "unknown"}',
-            );
-        }
-        return r;
-
+      // Defer stays in hot: `p = thunk(); continue` rebinds the loop
+      // variable, which only works inside this function's switch.
       case Defer<E, A>(:final thunk):
         p = thunk();
         continue;
 
-      case Memo<E, A>(:final inner, :final key, :final enableLR):
-        if (enableLR) return _interpretMemo<E, A>(inner, key, state);
-        return _interpretSimpleMemo<E, A>(inner, key, state);
-
-      case final Pratt<E, dynamic> pr:
-        return pr.interpretWith(
-              <T>(atom, prefixes, getOp, minBp, opTable) =>
-                  _interpretPratt<E, T>(
-                    atom,
-                    prefixes,
-                    getOp,
-                    minBp,
-                    opTable,
-                    state,
-                  ),
-            )
-            as Result<E, A>;
-
+      // ===== Cold path: rare cases dispatched via separate function =====
+      // Splitting the cold cases out keeps `interpretI`'s body small
+      // enough that the AOT/WASM optimizer can specialize the hot
+      // dispatch tightly. Pattern lifted from Eru's runFast/stepCold
+      // architecture; Dart equivalent skips Eru's exception-bail
+      // (expensive on Dart) in favor of a plain function call.
       default:
-        throw StateError('Unreachable: unhandled ${p.runtimeType}');
+        return _interpretCold<E, A>(p, state);
     }
+  }
+}
+
+/// Cold-path interpreter for the rarely-hit Parser cases.
+///
+/// Called from `interpretI`'s default branch. Handles: Optional,
+/// Attempt, LookAhead, NotFollowedBy, RecoverWith, Expect, Named,
+/// Trace, Debug, Memo, Pratt, Chainl1, Chainr1, the generic
+/// Many/Many1/SkipMany fall-throughs, and the generic Capture
+/// fall-through. The hot cases live inline in `interpretI`.
+Result<E, A> _interpretCold<E, A>(Parser<E, A> p, ParserState state) {
+  switch (p) {
+    case final Many<E, dynamic> m:
+      return m.interpretWith(
+            <T>(Parser<E, T> inner) => _interpretMany<E, T>(inner, state),
+          )
+          as Result<E, A>;
+
+    case final Many1<E, dynamic> m1:
+      return m1.interpretWith(
+            <T>(Parser<E, T> inner) => _interpretMany1<E, T>(inner, state),
+          )
+          as Result<E, A>;
+
+    case final SkipMany<E, dynamic> sm:
+      return sm.interpretWith(
+            <T>(Parser<E, T> inner) => _interpretSkipMany<E, T>(inner, state),
+          )
+          as Result<E, A>;
+
+    case Capture<E, dynamic>(parser: Many<E, dynamic>(:final parser)):
+      return _interpretCaptureMany<E, dynamic>(parser, state, required: false)
+          as Result<E, A>;
+
+    case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
+      return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
+          as Result<E, A>;
+
+    case final Chainl1<E, A> ch:
+      return ch.interpretWith(
+        <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
+            _interpretChainl1<E, T>(elt, op, state),
+      );
+
+    case final Chainr1<E, A> ch:
+      return ch.interpretWith(
+        <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
+            _interpretChainr1<E, T>(elt, op, state),
+      );
+
+    case final Capture<E, dynamic> cap:
+      return cap.interpretWith((inner) {
+            final startOff = state.offset;
+            final r = interpretI(inner, state);
+            return switch (r) {
+              Success(:final consumed) => Success<E, String>(
+                state.slice(startOff, startOff + consumed),
+                consumed,
+              ),
+              Partial(:final consumed, :final errorThunk) => Partial<E, String>(
+                state.slice(startOff, startOff + consumed),
+                errorThunk,
+                consumed,
+              ),
+              Failure(:final errorThunk, :final furthest) => Failure<E, String>(
+                errorThunk,
+                furthest,
+              ),
+            };
+          })
+          as Result<E, A>;
+
+    case final Optional<E, dynamic> opt:
+      return opt.interpretWith(<T>(Parser<E, T> inner) {
+            final simple = inner.isSimple;
+            final snapshot = simple ? 0 : state.save();
+            final r = interpretI<E, T>(inner, state);
+            if (r case Success<E, T>(:final value, :final consumed)) {
+              return Success<E, T?>(value, consumed);
+            }
+            if (r case Partial<E, T>(
+              :final value,
+              :final errorThunk,
+              :final consumed,
+            )) {
+              return Partial<E, T?>(value, errorThunk, consumed);
+            }
+            if (!simple) state.restore(snapshot);
+            return Success<E, T?>(null, 0);
+          })
+          as Result<E, A>;
+
+    case final Attempt<dynamic, dynamic> att:
+      return att.interpretWith((inner) {
+            final snapshot = state.save();
+            final r = interpretI(inner, state);
+            return switch (r) {
+              Success(:final value, :final consumed) =>
+                Success<Never, Result<dynamic, dynamic>>(
+                  Success(value, consumed),
+                  0,
+                ),
+              Partial(:final value, :final errorThunk, :final consumed) =>
+                Success<Never, Result<dynamic, dynamic>>(
+                  Partial.eager(value, errorThunk(), consumed),
+                  0,
+                ),
+              Failure(:final errorThunk, :final furthest) => () {
+                state.restore(snapshot);
+                return Success<Never, Result<dynamic, dynamic>>(
+                  Failure.eager(errorThunk(), furthest),
+                  0,
+                );
+              }(),
+            };
+          })
+          as Result<E, A>;
+
+    case LookAhead<E, A>(:final parser):
+      final snapshot = state.save();
+      final r = interpretI<E, A>(parser, state);
+      state.restore(snapshot);
+      return switch (r) {
+        Success(:final value) => Success<E, A>(value, 0),
+        Partial(:final value, :final errorThunk) => Partial<E, A>(
+          value,
+          errorThunk,
+          0,
+        ),
+        Failure() => r,
+      };
+
+    case NotFollowedBy(:final parser):
+      final snapshot = state.save();
+      final r = interpretI(parser, state);
+      state.restore(snapshot);
+      if (r is! Failure) {
+        final loc = state.location;
+        return Failure<E, A>(
+          () => [CustomError('Unexpected success', loc) as E],
+          loc,
+        );
+      }
+      return Success<E, A>(null as A, 0);
+
+    case RecoverWith<E, A>(:final parser, :final recovery):
+      final snapshot = state.save();
+      final r = interpretI<E, A>(parser, state);
+      if (r is! Failure<E, A>) return r;
+      state.restore(snapshot);
+      // Eagerly evaluate the original failure's errors now, before further
+      // parsing mutates state. Lazy thunks may close over ParserState and
+      // read stale offsets if evaluated later (see _satisfyMany).
+      final originalErrors = r.errorThunk();
+      final r2 = interpretI<E, A>(recovery, state);
+      return switch (r2) {
+        Success<E, A>(:final value, :final consumed) => Partial<E, A>.eager(
+          value,
+          originalErrors,
+          consumed,
+        ),
+        Partial<E, A>(:final value, :final errorThunk, :final consumed) =>
+          Partial<E, A>(
+            value,
+            () => [...originalErrors, ...errorThunk()],
+            consumed,
+          ),
+        Failure<E, A>(:final errorThunk, :final furthest) => Failure<E, A>(
+          () => [...originalErrors, ...errorThunk()],
+          r.furthest.offset > furthest.offset ? r.furthest : furthest,
+        ),
+      };
+
+    case Expect<A>(:final parser, :final message):
+      final r = interpretI<ParseError, A>(parser, state);
+      if (r is Failure<ParseError, A>) {
+        return Failure<E, A>(
+          () => [CustomError(message, r.furthest) as E],
+          r.furthest,
+        );
+      }
+      return r as Result<E, A>;
+
+    case Named<A>(:final parser, :final name):
+      final r = interpretI<ParseError, A>(parser, state);
+      if (r is Failure<ParseError, A>) {
+        return Failure<E, A>(
+          () =>
+              r.errorThunk().map((ParseError e) {
+                if (e is Unexpected) {
+                  return Unexpected(e.found, {...e.expected, name}, e.location)
+                      as E;
+                }
+                return e as E;
+              }).toList(),
+          r.furthest,
+        );
+      }
+      return r as Result<E, A>;
+
+    case Trace<E, A>(:final parser, :final label):
+      print('[TRACE] $label: trying at offset ${state.offset}');
+      final r = interpretI<E, A>(parser, state);
+      switch (r) {
+        case Success(:final consumed):
+          print('[TRACE] $label: success, consumed $consumed chars');
+        case Partial(:final consumed):
+          print('[TRACE] $label: partial, consumed $consumed chars');
+        case Failure():
+          print('[TRACE] $label: failed');
+      }
+      return r;
+
+    case Debug<E, A>(:final parser, :final label):
+      print('[DEBUG] $label: trying at offset ${state.offset}');
+      final r = interpretI<E, A>(parser, state);
+      switch (r) {
+        case Success(:final value):
+          print('[DEBUG] $label: success, parsed $value');
+        case Partial(:final value, :final errors):
+          print('[DEBUG] $label: partial, $value with ${errors.length} errors');
+        case Failure(:final errors):
+          print(
+            '[DEBUG] $label: failed with ${errors.firstOrNull ?? "unknown"}',
+          );
+      }
+      return r;
+
+    case Memo<E, A>(:final inner, :final key, :final enableLR):
+      if (enableLR) return _interpretMemo<E, A>(inner, key, state);
+      return _interpretSimpleMemo<E, A>(inner, key, state);
+
+    case final Pratt<E, dynamic> pr:
+      return pr.interpretWith(
+            <T>(atom, prefixes, getOp, minBp, opTable) => _interpretPratt<E, T>(
+              atom,
+              prefixes,
+              getOp,
+              minBp,
+              opTable,
+              state,
+            ),
+          )
+          as Result<E, A>;
+
+    default:
+      throw StateError('Unreachable: unhandled ${p.runtimeType}');
   }
 }
 
