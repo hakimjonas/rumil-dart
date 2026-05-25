@@ -21,6 +21,7 @@ measurement.
 | `bench_lr.dart`              | Left recursion cost and capability comparison.          |
 | `check_pratt_parity.dart`    | Pratt vs hand-written arithmetic-only parity check.     |
 | `probe_pratt_memory.dart`    | Pratt memory + wall-clock at increasing depths.         |
+| `bench_line_index.dart`      | LineIndex amortization + Location.format() walk.        |
 
 ## Running on AOT
 
@@ -44,6 +45,19 @@ deno run --allow-read tool/run_wasm.mjs /tmp/bench.wasm
 The runner is path-agnostic: it imports the `.mjs` companion at the
 same path as the `.wasm` argument and forwards remaining argv to the
 Dart `main`. Pass any flags after the `.wasm` path.
+
+## Running both at once
+
+For changes whose effect differs between runtimes — tight loops,
+small-vs-large input crossover, optimizer-sensitive paths — compile
+and run both AOT and Wasm via `tool/run_both.sh`:
+
+```bash
+tool/run_both.sh bin/bench_line_index.dart
+```
+
+It writes outputs to `/tmp/<basename>.aot` and `/tmp/<basename>.wasm`
+and prints both runs back to back. Requires `deno` on PATH.
 
 ## Comparing across releases
 
