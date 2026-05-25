@@ -1,7 +1,9 @@
 ## 0.7.1
 
-**`LineIndex` for O(log n) line/column resolution.** Additive — `Location`,
-existing combinators, and the rest of the public surface are unchanged.
+**`LineIndex` for O(log n) line/column resolution, and a hot/cold
+split of the interpreter dispatch that lifts the format-parser suite
+4–6%.** Additive on the public surface — `Location`, existing
+combinators, and the rest are unchanged.
 
 ### Added
 
@@ -42,6 +44,26 @@ existing combinators, and the rest of the public surface are unchanged.
   memoization (would conflict with the const constructor and the
   subtype-via-`implements` pattern). Use [LineIndex] when many
   positions need resolving against the same source.
+
+- **Hot/cold split of `interpretI`'s ~40-case switch.** The hot
+  cases stay inline (Succeed, Fail, Satisfy, StringMatch,
+  StringChoice, Eof, GetPosition, Mapped, FlatMap, Zip, Or, Choice,
+  FirstCharChoice, the Many/Many1/SkipMany/Capture(Many) terminal-
+  shape fast paths, Defer). The cold cases (Optional, Attempt,
+  LookAhead, NotFollowedBy, RecoverWith, Expect, Named, Trace,
+  Debug, Memo, Pratt, Chainl1, Chainr1, the generic Many/Many1/
+  SkipMany/Capture fall-throughs) move to a separate `_interpretCold`
+  function called from a `default` branch.
+
+  Pattern adapted from Eru's `runFast`/`stepCold` architecture.
+  Shrinks `interpretI`'s AOT body from 11,276 → 6,824 bytes (−39.5%),
+  letting the optimizer specialize the hot dispatch tightly.
+
+  Behavior unchanged. Format parser suite (every parser in the
+  family, both runtimes): every benchmark faster, range 2–9% AOT,
+  2–6% WASM, average ~5%. The dispatch microbench in `rumil_bench`
+  shows 9–14% improvement on the composite-Many path that surfaces
+  the hot-loop dispatch overhead.
 
 ### Benchmarks (1000 ops per benchmark)
 
