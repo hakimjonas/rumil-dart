@@ -1,3 +1,42 @@
+## 0.8.1
+
+Two additive parsers: `parseMarkdownWithFrontmatter` and `parseNdJson`.
+Motivated by lambé's input pipeline (markdown frontmatter currently
+leaks into document body; NDJSON line splitting was hand-rolled
+downstream) and by rem's `markdownWithFrontmatter` helper, which can
+collapse to a thin re-export of the upstream API.
+
+### Added
+
+- **`parseMarkdownWithFrontmatter(String input) → Result<ParseError,
+  MarkdownDocument>`.** Parses Markdown that may have a leading YAML
+  frontmatter block delimited by `---` lines. Returns a
+  `MarkdownDocument` carrying both the optional `YamlDocument`
+  frontmatter and the `MdDocument` body. Detection rules: the opening
+  `---` must sit at offset 0 and be followed by a newline; the
+  closing fence is the first line containing exactly `---`; CRLF is
+  tolerated; an unclosed block falls back to plain Markdown without
+  raising an error; an empty block (`---\n---\n`) yields `YamlNull`.
+  YAML parse errors inside a well-formed block surface as the
+  result's failure. `parseMarkdown` is byte-unchanged.
+
+- **`parseNdJson(String input, {NdJsonConfig config})` →
+  `Result<ParseError, List<JsonValue>>`.** Parses newline-delimited
+  JSON (NDJSON / JSON Lines). A `\r` immediately before `\n` is
+  stripped so CRLF input parses identically to LF. Per-line errors
+  are accumulated as `Partial` rather than aborting the stream —
+  callers see every parsed value and every error in one pass. Error
+  `Location`s reference the original input, with line/column
+  precomputed in O(log n) via the new `rumil.LineIndex`. `parseJson`
+  is byte-unchanged.
+
+  **Strict by default.** Blank lines are parse errors, matching
+  jsonlines.org. The opt-in `NdJsonConfig(lenient: true)` skips blank
+  lines for log-file consumers and stanza-style inputs. Strict mode
+  is the right default — tolerating blank lines silently is the kind
+  of choice that makes one parser quietly different from another and
+  bugs in upstream producers go unnoticed.
+
 ## 0.8.0
 
 JSON parser, principled and fast. The HCL number AST follows the same

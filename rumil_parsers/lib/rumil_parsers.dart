@@ -36,7 +36,10 @@ export 'src/delimited.dart'
         defaultCsvConfig;
 export 'src/hcl.dart' show parseHcl;
 export 'src/json.dart' show parseJson;
+export 'src/ndjson.dart' show NdJsonConfig, parseNdJson;
 export 'src/markdown.dart' show parseMarkdown;
+export 'src/markdown_frontmatter.dart'
+    show MarkdownDocument, parseMarkdownWithFrontmatter;
 export 'src/proto.dart' show parseProto;
 export 'src/toml.dart' show parseToml;
 export 'src/xml.dart' show parseXml, parseXmlFragment;
