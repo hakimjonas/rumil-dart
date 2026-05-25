@@ -1,3 +1,80 @@
+## 0.7.1
+
+**`LineIndex` for O(log n) line/column resolution.** Additive — `Location`,
+existing combinators, and the rest of the public surface are unchanged.
+
+### Added
+
+- **`LineIndex(source)`**: builds a sorted array of every `\n` offset
+  in [source] in one O(n) pass, backed by a `Uint32List`. Subsequent
+  `locationAt(offset)` queries run in O(log n) via binary search and
+  return a [Location] with precomputed line, column, and offset
+  (instead of the lazy O(n) walk and O(column) backwalk that
+  [Location] performs by default). `spanAt(start, end)` resolves both
+  endpoints of a [Span] in one pair of lookups.
+
+  Motivated by streaming parsers (NDJSON, multi-document YAML) that
+  produce many errors against the same input: rendering N errors to
+  `line:column` was O(N·n) without an index, O(N·log n) with one.
+  Mirrors the LineIndex from rumil-scala, including its
+  line-terminator policy: `\n` is the sole terminator; `\r` is a
+  regular character; callers normalize at the editor or LSP boundary
+  before building the index. Column encoding is UTF-16 code units,
+  matching the LSP default.
+
+- **`PrecomputedLocation`**: an internal [Location] subtype carrying
+  cached `line` and `column`. Constructed only via
+  `LineIndex.locationAt`; existing code that constructs
+  `Location(input, offset)` directly continues to use the lazy walk.
+
+### Changed
+
+- **`Location.format()` now does one forward walk instead of two.**
+  The previous implementation read [Location.line] and
+  [Location.column] separately, walking `[0, offset)` twice (once
+  forward to count newlines, once backward to find the column). The
+  fused version walks once, tracking both the newline count and the
+  most-recent newline offset. Measured 17–21% faster on AOT across
+  source sizes 1 KB / 10 KB / 100 KB.
+
+  Behavior unchanged: same output string, same edge cases. Callers
+  that read `.line` and `.column` directly still walk twice — no
+  memoization (would conflict with the const constructor and the
+  subtype-via-`implements` pattern). Use [LineIndex] when many
+  positions need resolving against the same source.
+
+### Benchmarks (1000 ops per benchmark)
+
+LineIndex amortization holds across runtimes — about three orders of
+magnitude at 100 KB on both AOT and WASM:
+
+| Source | AOT cached | AOT rebuilt | AOT speedup | WASM cached | WASM rebuilt | WASM speedup |
+|--------|-----------:|------------:|------------:|------------:|-------------:|-------------:|
+| 1 KB   |     6.5 μs |    1 049 μs |        161× |      7.6 μs |     1 128 μs |         148× |
+| 10 KB  |    16.6 μs |   10 214 μs |        615× |     16.3 μs |    11 141 μs |         684× |
+| 100 KB |     112 μs |  103 718 μs |        926× |      116 μs |   111 132 μs |         958× |
+
+The fused `Location.format()` walk is a smaller polish, more visible
+on AOT than WASM (which already folds some of the redundant work):
+
+| Source | AOT fused | AOT legacy | AOT win | WASM fused | WASM legacy | WASM win |
+|--------|----------:|-----------:|--------:|-----------:|------------:|---------:|
+| 1 KB   |    330 μs |     390 μs |   1.18× |     444 μs |      439 μs |  ~1.00×  |
+| 10 KB  |  2 691 μs |   3 154 μs |   1.17× |   3 293 μs |    3 709 μs |    1.13× |
+| 100 KB | 25 562 μs |  30 843 μs |   1.21× |  32 328 μs |   36 330 μs |    1.12× |
+
+Reproduce from `rumil_bench/`:
+
+```bash
+# AOT
+dart compile exe bin/bench_line_index.dart -o /tmp/bench_li
+/tmp/bench_li
+
+# WASM (Deno required)
+dart compile wasm bin/bench_line_index.dart -o /tmp/bench_li.wasm
+deno run --allow-read tool/run_wasm.mjs /tmp/bench_li.wasm
+```
+
 ## 0.7.0
 
 **Pratt operator-precedence parsing, stack-safe chain combinators,

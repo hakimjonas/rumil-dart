@@ -6,6 +6,7 @@ export 'src/errors.dart';
 export 'src/extensions.dart';
 export 'src/operator_presets.dart';
 export 'src/interpreter.dart' show run, runRecursive;
+export 'src/line_index.dart';
 export 'src/location.dart';
 export 'src/memo.dart' show MemoKey;
 export 'src/parser.dart';
