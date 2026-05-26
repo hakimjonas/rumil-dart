@@ -1,8 +1,12 @@
 # rumil
 
-Parser combinator library for Dart 3 with left recursion, typed errors, and stack safety.
+Parser combinator library for Dart 3 with operator precedence, typed errors, and stack safety.
 
-Sealed ADT with 26 parser subtypes, external interpreter with defunctionalized trampoline, Warth seed-growth left recursion, and lazy error construction. Zero external dependencies.
+Sealed ADT with 26 parser subtypes, external interpreter with a defunctionalized trampoline, and lazy error construction. Zero external dependencies.
+
+Operator precedence is handled by `pratt(...)`, an iterative Pratt-as-a-combinator inspired by Lean 4: atoms and operator symbols are ordinary Rumil parsers, and chain depth lives on a heap-allocated frame stack instead of the Dart call stack. Stack safety is bounded by available memory rather than the call stack — verified in CI at 10 M operands as a time-budget regression test, and locally at 1 B. `rule()` (Warth seed-growth) is also available for directly-left-recursive grammars that don't reduce to a binding-power table.
+
+As of 0.7.1, runs within 1.7–3.2× of petitparser on dart2wasm and 5.5–10× on AOT, narrowing each release.
 
 ## Usage
 

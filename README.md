@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/hakimjonas/rumil-dart/actions/workflows/ci.yml/badge.svg)](https://github.com/hakimjonas/rumil-dart/actions/workflows/ci.yml)
 
-Parser combinators for Dart 3. Typed errors, left recursion, stack-safe trampolining.
+Parser combinators for Dart 3 with operator precedence, typed line/column errors, and memory-bounded stack safety — alongside spec-conformant parsers for JSON, YAML, TOML, HCL, CSV, XML, Proto3, and CommonMark Markdown built on the same primitives.
 
 *Rumil invented the first writing system (the Sarati) in Tolkien's legendarium. This library parses text into structure.*
 
@@ -10,7 +10,7 @@ Parser combinators for Dart 3. Typed errors, left recursion, stack-safe trampoli
 
 | Package             | Description                                                                                                     |
 |---------------------|-----------------------------------------------------------------------------------------------------------------|
-| `rumil`             | Core combinator framework. Sealed Parser ADT, interpreter, trampoline, memoization, Warth left recursion.       |
+| `rumil`             | Core combinator framework. Sealed Parser ADT, defunctionalized trampoline, Pratt-as-a-combinator, memoization.  |
 | `rumil_parsers`     | Format parsers and serializers for JSON, CSV, XML, TOML, YAML, Proto3, HCL, and CommonMark Markdown.            |
 | `rumil_codec`       | Binary codec with ZigZag, Varint, ByteWriter/Reader, and composable `BinaryCodec` via `xmap` and `product2..6`. |
 | `rumil_expressions` | Formula evaluator with arithmetic, boolean logic, variables, and custom functions.                              |
@@ -50,25 +50,10 @@ expr.run('1 + 2 * 3');
 
 ### Why Pratt + the preset
 
-This was the natural shape of expression grammars in earlier rumil
-versions too — six layered `chainl1` calls, one per precedence level.
-0.7.0 unifies it:
-
-- **Performance.** Single-pass operator dispatch replaces six dispatch
-  layers. Measured 30–35% faster on `rumil_expressions` and 11–13%
-  faster on HCL across the full bench matrix.
-- **Stack safety.** `pratt`'s explicit operator stack handles
-  right-associative chains and chained prefixes to memory-only depth.
-  `chainl1` and `chainr1` were also promoted to first-class ADT cases
-  with iterative interpretation (was StackOverflow at ~850 chain
-  steps under the previous expansion).
-- **Same correctness guarantees.** Left recursion via `rule()`
-  (Warth seed-growth) still works as before — Pratt sits inside that
-  story, not orthogonal to it. Typed errors with location, lazy error
-  construction, parser inspection, memoization, all unchanged.
-- **`chainl1` and `chainr1` still ship** for non-precedence folds.
-  Pratt is recommended when you have actual operator precedence;
-  `chainl1` is fine for a flat left-fold.
+- **Performance.** Single-pass operator dispatch replaces a stack of layered `chainl1` calls. Measured 30–35% faster on `rumil_expressions` and 11–13% faster on HCL across the full bench matrix.
+- **Stack safety.** Pratt's iterative interpretation handles right-associative chains and chained prefixes to memory-only depth. `chainl1` and `chainr1` are also first-class ADT cases with iterative interpretation.
+- **Typed errors with location, lazy error construction, parser inspection, and memoization are unchanged.** `rule()` (Warth seed-growth) remains available for directly-left-recursive grammars that don't reduce to a binding-power table.
+- **`chainl1` and `chainr1` still ship** for non-precedence folds. Reach for `pratt` when you have actual operator precedence; `chainl1` is enough for a flat left-fold.
 
 ## Left recursion
 
@@ -192,24 +177,44 @@ No external runtime dependencies. Only `dart:typed_data` and `dart:convert`.
 
 ## Performance
 
-Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Both parsers build the same typed `JsonValue` AST to keep the comparison fair.
+Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Both parsers build the same typed `JsonValue` AST so the comparison is fair.
 
-| Benchmark              | Rumil 0.7 | petitparser | Ratio |
-|------------------------|-----------|-------------|-------|
-| JSON small (39B)       | 18 μs     | 1.9 μs      | 10x   |
-| JSON large (803KB)     | 312 ms    | 44 ms       | 7x    |
-| Expression (simple)    | 6.5 μs    | 0.8 μs      | 8x    |
-| Expression (100 terms) | 181 μs    | 28 μs       | 6x    |
+### AOT native
 
-Rumil is 6–10× slower than petitparser on native AOT, down from 10–13× in 0.6. This is the cost of the ADT interpreter architecture. Under dart2wasm the gap narrows further because sealed class dispatch compiles efficiently to WasmGC `br_on_cast` while petitparser's virtual dispatch compiles less efficiently to WasmGC indirect calls. WasmGC is consistently 2× faster than AOT native for Rumil parsers.
+| Benchmark              | Rumil 0.7.1 | petitparser | Ratio |
+|------------------------|-------------|-------------|-------|
+| JSON small (39 B)      | 15.9 μs     | 2.0 μs      | 8.0×  |
+| JSON medium (45 KB)    | 22.7 ms     | 2.8 ms      | 8.0×  |
+| JSON large (803 KB)    | 256 ms      | 47 ms       | 5.5×  |
+| Expression (simple)    | 6.4 μs      | 0.75 μs     | 8.5×  |
+| Expression (100 terms) | 169 μs      | 27 μs       | 6.2×  |
 
-The 0.7 wins come from `pratt(...)` + `cFamilyPrecedence` (–30% on `rumil_expressions`, –11–13% on HCL) and `firstCharChoice` (–24–27% on JSON across all sizes), plus interpreter-level optimizations that apply transparently (FIRST-set Or dispatch, `Many(StringMatch)` / `SkipMany(simple)` fast paths, `Capture(Many)` fusion).
+### dart2wasm (WasmGC)
 
-See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair comparison breakdown, dart2wasm numbers, and format parser throughput. (BENCHMARKS.md is being refreshed for 0.7.0; the table above is the updated headline.)
+| Benchmark              | Rumil 0.7.1 | petitparser | Ratio |
+|------------------------|-------------|-------------|-------|
+| JSON small (39 B)      | 5.6 μs      | 2.6 μs      | 2.2×  |
+| JSON medium (45 KB)    | 9.3 ms      | 3.8 ms      | 2.4×  |
+| JSON large (803 KB)    | 107 ms      | 63 ms       | 1.7×  |
+| Expression (simple)    | 3.5 μs      | 1.2 μs      | 2.9×  |
+| Expression (100 terms) | 95 μs       | 47 μs       | 2.0×  |
 
-**Different tradeoffs from petitparser:**
+Trajectory: AOT was 10–13× slower in 0.6, 6–10× in 0.7.0, and 5.5–10× in 0.7.1 — the large-input case has dropped below 6×. WASM was 3–4.4× in 0.7.0 and is 1.7–3.2× in 0.7.1.
 
-Petitparser uses virtual dispatch and mutable parsers, which gives it excellent throughput. Rumil uses a sealed ADT, immutable parsers, and an external interpreter. This costs throughput but adds left recursion (`rule()`), typed errors with source location, memoization, parser inspection, lazy error construction, and stack safety via trampolining. Different tradeoffs for different needs.
+The gap narrows because sealed-ADT dispatch compiles efficiently to WasmGC's `br_on_cast`, while petitparser's virtual dispatch compiles to WasmGC indirect calls — and because the 0.7.1 hot/cold split shrank the interpreter's hot dispatch path by 39%. WasmGC is consistently around 2× faster than AOT native for Rumil; petitparser is around 1.4× *slower* under WasmGC than AOT.
+
+The 0.7.x wins come from `pratt(...)` + `cFamilyPrecedence` (–30% on `rumil_expressions`, –11–13% on HCL), `firstCharChoice` (–24–27% on JSON), the FIRST-set `Or` dispatch and `Many(StringMatch)` fast paths (4–6% across the format suite in 0.7.0), and the 0.7.1 hot/cold split (a further 4–6% on the format suite, 9–14% on the dispatch microbench).
+
+See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair-comparison breakdown, dart2wasm numbers, and format parser throughput.
+
+### What Rumil offers in exchange
+
+The interpreter architecture costs throughput but buys a different set of properties:
+
+- **Pratt-as-a-combinator for operator precedence.** Atoms and operator symbols are ordinary Rumil parsers, composed into a `pratt(...)` node. The interpreter walks operators iteratively over an explicit frame stack — chain depth lives in heap-allocated frames, not in the Dart call stack. When every operator symbol is a literal prefix, the builder compiles a first-code-unit dispatch table with longest-prefix-first ordering and optional word-boundary or not-followed-by guards for keyword and ambiguity cases. Inspired by Lean 4's Pratt-in-combinators approach (Pratt embedded in the combinator framework, leading/trailing split, first-token dispatch). `rule()` (Warth seed-growth) is still available for directly-left-recursive grammars that don't reduce to a binding-power table.
+- **Memory-bounded stack safety.** The defunctionalized trampoline keeps the Dart call stack constant regardless of grammar depth or input length; pending operations live on heap-allocated frame stacks. The chain primitives (`flatMap`, `chainl1`, `chainr1`, Pratt left-/right-associative, Pratt prefix) are exercised at 10 million operands in CI as a time-budget regression test, and have been validated locally at 1 billion operands. The practical ceiling is available memory, not the call stack.
+- **Typed errors with location.** `ParseError` is a sealed hierarchy carrying line, column, and offset; backtracking branches that fail never construct their error message, thanks to nullable-cache thunks.
+- **Inspectable parsers.** Sealed-ADT nodes can be analyzed and rewritten at construction time — the FIRST-set `Or` rewrite, `Capture(Many)` fusion, and the Pratt op-table compilation all use this.
 
 ## License
 
