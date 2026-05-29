@@ -1,7 +1,7 @@
 /// Protocol Buffers .proto schema AST types.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 /// Scalar field types.
 enum ProtoScalar {

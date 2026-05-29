@@ -1,7 +1,7 @@
 /// JSON AST types.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 /// A JSON value.
 sealed class JsonValue {

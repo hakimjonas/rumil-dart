@@ -1,7 +1,7 @@
 /// XML AST types.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 /// Qualified name with optional namespace prefix.
 class QName {

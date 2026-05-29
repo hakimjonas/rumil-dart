@@ -1,8 +1,10 @@
 /// Rumil — parser combinators for Dart.
 library;
 
+export 'src/equality.dart';
 export 'src/combinators.dart';
 export 'src/errors.dart';
+export 'src/green_node.dart';
 export 'src/extensions.dart';
 export 'src/operator_presets.dart';
 export 'src/interpreter.dart' show run, runRecursive;
