@@ -106,4 +106,54 @@ void main() {
       expect(identical(trees[0], trees[1]), isTrue);
     });
   });
+
+  group('RedTree survives interning (sibling identity contract)', () {
+    // The reason RedTree disambiguates siblings by childIndex rather than
+    // green reference identity is precisely so it survives interning, which
+    // makes structurally-equal siblings `identical`. Build such a tree
+    // directly and confirm navigation still distinguishes the siblings.
+    test('identical sibling greens navigate by position, not identity', () {
+      final cache = GreenCache();
+      // Two structurally-equal digit tokens, interned to one canonical, used
+      // as two siblings of one parent. After interning they are `identical`.
+      // Non-const on purpose: the point is two genuinely distinct instances
+      // that interning then collapses, not compiler-canonicalized literals.
+      // ignore: prefer_const_constructors
+      final dig = cache.intern(GreenToken<Tok, Syn>(Tok.digit, '5'));
+      final dig2 = cache.intern(
+        GreenToken<Tok, Syn>(Tok.digit, String.fromCharCode(0x35)),
+      );
+      expect(identical(dig, dig2), isTrue); // interning collapsed them
+
+      // Parent with the same canonical green appearing at index 0 and 2,
+      // a distinct '+' between them.
+      final parent = GreenTree<Tok, Syn>(Syn.expr, [
+        dig,
+        const GreenToken<Tok, Syn>(Tok.plus, '+'),
+        dig2,
+      ]);
+      final root = RedTree<Tok, Syn>(parent, '5+5');
+
+      final kids = root.children;
+      expect(kids.length, 3);
+      // The two digit reds wrap the same canonical green but are distinct
+      // red views at distinct offsets / indices.
+      expect(identical(kids[0].green, kids[2].green), isTrue);
+      expect(kids[0].offset, 0);
+      expect(kids[2].offset, 2);
+      expect(kids[0].childIndex, 0);
+      expect(kids[2].childIndex, 2);
+
+      // Navigation distinguishes them despite identical greens.
+      expect(kids[0].nextSibling?.text, '+');
+      expect(kids[2].prevSibling?.text, '+');
+      expect(kids[0].nextSibling?.nextSibling, isNotNull);
+      expect(identical(kids[0].nextSibling?.nextSibling, kids[2]), isTrue);
+
+      // pathFromRoot keys on childIndex, so the two collapse-equal greens
+      // still get distinct paths.
+      expect(kids[0].pathFromRoot, [0]);
+      expect(kids[2].pathFromRoot, [2]);
+    });
+  });
 }
