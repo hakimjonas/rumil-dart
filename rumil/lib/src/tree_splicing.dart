@@ -16,6 +16,16 @@ library;
 import 'green_node.dart';
 
 /// Subtree replacement operations on green trees.
+///
+/// Only [replaceAt] is provided. rumil-scala's `TreeSplicing` also exposes
+/// `replaceChildRange`, `findNode`, and `pathToOffset`, but its
+/// `IncrementalParser` uses none of them — it splices exclusively through
+/// `replaceAt` (token-level and block-level paths alike). `pathToOffset` is
+/// in any case redundant here: `RedTree.nodeAt(offset).pathFromRoot` already
+/// gives a splice path from an offset. So those three are deliberately not
+/// ported — building them ahead of a consumer would be speculative surface
+/// area. A range-replace can be added additively if a real consumer needs
+/// one.
 abstract final class TreeSplicing {
   /// Replace the node at [path] in [root] with [replacement], returning a new
   /// root. Returns null if [path] does not resolve — an index out of range,

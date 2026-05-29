@@ -18,5 +18,6 @@ export 'src/radix.dart' show RadixNode;
 export 'src/red_tree.dart';
 export 'src/resilient.dart';
 export 'src/result.dart';
+export 'src/text_edit.dart';
 export 'src/tree_splicing.dart';
 export 'src/state.dart' show ParserState;
