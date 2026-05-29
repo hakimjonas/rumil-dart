@@ -21,12 +21,12 @@ void main() {
   group('GreenToken', () {
     test('textLength is text.length', () {
       const t = JsonToken(JsonTok.str, '"hello"');
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(t), 7);
+      expect(t.textLength, 7);
     });
 
     test('toSource returns text verbatim', () {
       const t = JsonToken(JsonTok.num, '3.14');
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(t), '3.14');
+      expect(t.toSource(), '3.14');
     });
 
     test('equality is structural', () {
@@ -51,7 +51,7 @@ void main() {
   group('GreenTree', () {
     test('empty children give zero textLength', () {
       const t = JsonTree(JsonSyn.document, []);
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(t), 0);
+      expect(t.textLength, 0);
     });
 
     test('textLength sums children', () {
@@ -60,7 +60,7 @@ void main() {
         JsonToken(JsonTok.num, '42'),
         JsonToken(JsonTok.rbracket, ']'),
       ]);
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(tree), 4);
+      expect(tree.textLength, 4);
     });
 
     test('toSource concatenates children in order', () {
@@ -71,7 +71,7 @@ void main() {
         JsonToken(JsonTok.num, '2'),
         JsonToken(JsonTok.rbracket, ']'),
       ]);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(tree), '[1,2]');
+      expect(tree.toSource(), '[1,2]');
     });
 
     test('toSource is recursive', () {
@@ -85,8 +85,8 @@ void main() {
         inner,
         JsonToken(JsonTok.rbracket, ']'),
       ]);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(outer), '[[7]]');
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(outer), 5);
+      expect(outer.toSource(), '[[7]]');
+      expect(outer.textLength, 5);
     });
 
     test('equality is structural and recursive', () {
@@ -120,12 +120,12 @@ void main() {
   group('GreenMissing', () {
     test('textLength is zero', () {
       const m = JsonMissing(JsonTok.rbrace);
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(m), 0);
+      expect(m.textLength, 0);
     });
 
     test('toSource is empty', () {
       const m = JsonMissing(JsonTok.rbrace);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(m), isEmpty);
+      expect(m.toSource(), isEmpty);
     });
 
     test('equality is by expected kind', () {
@@ -151,7 +151,7 @@ void main() {
         JsonToken(JsonTok.str, 'garbage'),
         JsonToken(JsonTok.ws, '  '),
       ]);
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(u), 9);
+      expect(u.textLength, 9);
     });
 
     test('toSource concatenates children verbatim', () {
@@ -159,7 +159,7 @@ void main() {
         JsonToken(JsonTok.str, 'garbage'),
         JsonToken(JsonTok.ws, '  '),
       ]);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(u), 'garbage  ');
+      expect(u.toSource(), 'garbage  ');
     });
 
     test('equality is structural and recursive', () {
@@ -178,8 +178,8 @@ void main() {
 
     test('empty unexpected (zero-width recovery placeholder)', () {
       const u = JsonUnexpected([]);
-      expect(GreenNodeOps.textLength<JsonTok, JsonSyn>(u), 0);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(u), isEmpty);
+      expect(u.textLength, 0);
+      expect(u.toSource(), isEmpty);
     });
   });
 
@@ -197,7 +197,7 @@ void main() {
         ]),
         JsonMissing(JsonTok.rbrace),
       ]);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(tree), '{"key":"value"');
+      expect(tree.toSource(), '{"key":"value"');
     });
 
     test('skipped region wrapped in Unexpected reconstructs verbatim', () {
@@ -209,7 +209,39 @@ void main() {
           JsonToken(JsonTok.str, '+garbage'),
         ]),
       ]);
-      expect(GreenNodeOps.toSource<JsonTok, JsonSyn>(tree), '5+garbage');
+      expect(tree.toSource(), '5+garbage');
+    });
+  });
+
+  group('Stack safety', () {
+    /// Build `((((...))))`-style nesting at the requested depth.
+    /// Each level wraps the previous tree as the middle child of an
+    /// outer `value`-kinded tree with `(` and `)` token children.
+    JsonGreen buildDeepTree(int depth) {
+      JsonGreen current = const JsonToken(JsonTok.num, '0');
+      for (var i = 0; i < depth; i++) {
+        current = JsonTree(JsonSyn.value, [
+          const JsonToken(JsonTok.lbracket, '('),
+          current,
+          const JsonToken(JsonTok.rbracket, ')'),
+        ]);
+      }
+      return current;
+    }
+
+    test('textLength on 100k-deep nested tree does not overflow', () {
+      final deep = buildDeepTree(100000);
+      // 100k pairs of parentheses + the inner '0'.
+      expect(deep.textLength, 100000 * 2 + 1);
+    });
+
+    test('toSource on 100k-deep nested tree does not overflow', () {
+      final deep = buildDeepTree(100000);
+      final source = deep.toSource();
+      expect(source.length, 100000 * 2 + 1);
+      expect(source.startsWith('('), isTrue);
+      expect(source.endsWith(')'), isTrue);
+      expect(source.contains('0'), isTrue);
     });
   });
 
@@ -234,11 +266,28 @@ void main() {
       expect(m.toString(), contains('JsonTok.rbrace'));
     });
 
-    test('GreenUnexpected includes child count', () {
+    test('GreenUnexpected uses singular for one child', () {
       const u = JsonUnexpected([
         JsonToken(JsonTok.str, 'x'),
       ]);
-      expect(u.toString(), contains('1 children'));
+      expect(u.toString(), contains('1 child'));
+      expect(u.toString(), isNot(contains('1 children')));
+    });
+
+    test('GreenUnexpected uses plural for two children', () {
+      const u = JsonUnexpected([
+        JsonToken(JsonTok.str, 'x'),
+        JsonToken(JsonTok.str, 'y'),
+      ]);
+      expect(u.toString(), contains('2 children'));
+    });
+
+    test('GreenTree uses singular for one child', () {
+      const t = JsonTree(JsonSyn.array, [
+        JsonToken(JsonTok.lbracket, '['),
+      ]);
+      expect(t.toString(), contains('1 child'));
+      expect(t.toString(), isNot(contains('1 children')));
     });
   });
 }

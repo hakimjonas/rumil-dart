@@ -90,7 +90,10 @@ final class GreenTree<Tok, Syn> extends GreenNode<Tok, Syn> {
   int get hashCode => Object.hash(kind, listHash(children));
 
   @override
-  String toString() => 'GreenTree($kind, ${children.length} children)';
+  String toString() {
+    final n = children.length;
+    return 'GreenTree($kind, $n ${n == 1 ? "child" : "children"})';
+  }
 }
 
 /// Zero-width placeholder for a token the parser expected but didn't find.
@@ -143,65 +146,88 @@ final class GreenUnexpected<Tok, Syn> extends GreenNode<Tok, Syn> {
   int get hashCode => Object.hash('unexpected', listHash(children));
 
   @override
-  String toString() => 'GreenUnexpected(${children.length} children)';
+  String toString() {
+    final n = children.length;
+    return 'GreenUnexpected($n ${n == 1 ? "child" : "children"})';
+  }
 }
 
 /// Operations on green trees. Lifted into a namespace rather than methods
 /// on [GreenNode] so the ADT stays minimal data and the operations are
-/// easy to extend without modifying the sealed hierarchy.
+/// easy to extend without modifying the sealed hierarchy. The
+/// [GreenNodeExt] extension below forwards to these for ergonomic
+/// `node.textLength` / `node.toSource()` call sites.
 abstract final class GreenNodeOps {
   /// Total source-character length of the subtree rooted at [node].
   ///
-  /// Sums across children for [GreenTree] and [GreenUnexpected].
-  /// [GreenMissing] contributes zero (it is a zero-width placeholder).
+  /// Iterative depth-first walk over an explicit worklist — chain depth
+  /// lives in heap-allocated frames, not in the Dart call stack. A
+  /// pathologically deep nested tree (e.g. 5000-level `((((...))))`)
+  /// completes in memory-bounded space without overflow.
+  ///
   /// [GreenToken] contributes its [GreenToken.text] length.
-  static int textLength<Tok, Syn>(GreenNode<Tok, Syn> node) => switch (node) {
-    GreenToken<Tok, Syn>(:final text) => text.length,
-    GreenTree<Tok, Syn>(:final children) => _sumLengths(children),
-    GreenMissing<Tok, Syn>() => 0,
-    GreenUnexpected<Tok, Syn>(:final children) => _sumLengths(children),
-  };
+  /// [GreenTree] / [GreenUnexpected] sum across children.
+  /// [GreenMissing] contributes zero (it is a zero-width placeholder).
+  static int textLength<Tok, Syn>(GreenNode<Tok, Syn> node) {
+    var total = 0;
+    final stack = <GreenNode<Tok, Syn>>[node];
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+      switch (current) {
+        case GreenToken<Tok, Syn>(:final text):
+          total += text.length;
+        case GreenMissing<Tok, Syn>():
+          break;
+        case GreenTree<Tok, Syn>(:final children):
+        case GreenUnexpected<Tok, Syn>(:final children):
+          stack.addAll(children);
+      }
+    }
+    return total;
+  }
 
   /// Reconstruct the original source covered by the subtree rooted at
-  /// [node]. Concatenates [GreenToken.text] across the in-order traversal,
+  /// [node]. Concatenates [GreenToken.text] in source-order traversal,
   /// skips [GreenMissing] (zero-width), descends into [GreenUnexpected]
   /// children verbatim.
+  ///
+  /// Iterative depth-first walk: children are pushed to the worklist in
+  /// reverse so they pop in source order. Same stack-safety property as
+  /// [textLength].
   ///
   /// Lossless invariant: for any tree produced by a parser run on
   /// `originalSource`, `toSource(tree) == originalSource`.
   static String toSource<Tok, Syn>(GreenNode<Tok, Syn> node) {
     final buffer = StringBuffer();
-    _writeSource(node, buffer);
+    final stack = <GreenNode<Tok, Syn>>[node];
+    while (stack.isNotEmpty) {
+      final current = stack.removeLast();
+      switch (current) {
+        case GreenToken<Tok, Syn>(:final text):
+          buffer.write(text);
+        case GreenMissing<Tok, Syn>():
+          break;
+        case GreenTree<Tok, Syn>(:final children):
+        case GreenUnexpected<Tok, Syn>(:final children):
+          for (var i = children.length - 1; i >= 0; i--) {
+            stack.add(children[i]);
+          }
+      }
+    }
     return buffer.toString();
   }
+}
 
-  static int _sumLengths<Tok, Syn>(List<GreenNode<Tok, Syn>> children) {
-    var total = 0;
-    for (final child in children) {
-      total += textLength(child);
-    }
-    return total;
-  }
+/// Ergonomic accessors on [GreenNode]. Forwards to [GreenNodeOps] so
+/// callers can write `node.textLength` and `node.toSource()` instead of
+/// `GreenNodeOps.textLength<Tok, Syn>(node)`.
+extension GreenNodeExt<Tok, Syn> on GreenNode<Tok, Syn> {
+  /// Source-character length of this subtree. See [GreenNodeOps.textLength].
+  int get textLength => GreenNodeOps.textLength(this);
 
-  static void _writeSource<Tok, Syn>(
-    GreenNode<Tok, Syn> node,
-    StringBuffer buffer,
-  ) {
-    switch (node) {
-      case GreenToken<Tok, Syn>(:final text):
-        buffer.write(text);
-      case GreenTree<Tok, Syn>(:final children):
-        for (final child in children) {
-          _writeSource(child, buffer);
-        }
-      case GreenMissing<Tok, Syn>():
-        break;
-      case GreenUnexpected<Tok, Syn>(:final children):
-        for (final child in children) {
-          _writeSource(child, buffer);
-        }
-    }
-  }
+  /// Reconstructed source covered by this subtree. See
+  /// [GreenNodeOps.toSource].
+  String toSource() => GreenNodeOps.toSource(this);
 }
 
 String _quote(String text) {
