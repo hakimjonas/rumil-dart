@@ -227,9 +227,8 @@ IncrementalResult<Tok, Syn> _blockLevelReparse<Tok, Syn>(
   final regionEnd = region.endOffset;
   // The region's end shifts by the edit's lengthDelta when the edit is
   // within it; an edit straddling the end is not a single-region edit.
-  final adjustedEnd = edit.endOffset <= regionEnd
-      ? regionEnd + edit.lengthDelta
-      : regionEnd;
+  final adjustedEnd =
+      edit.endOffset <= regionEnd ? regionEnd + edit.lengthDelta : regionEnd;
 
   // Near-whole-document edits aren't worth the incremental bookkeeping.
   if (adjustedEnd - regionStart >= newSource.length - config.minReparseSize) {

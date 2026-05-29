@@ -39,8 +39,7 @@ import 'primitives.dart';
 /// unaffected — see `green_cache.dart`'s sibling-identity contract.
 Parser<E, GreenNode<Tok, Syn>> internToken<E, Tok, Syn>(
   Parser<E, GreenNode<Tok, Syn>> inner,
-) =>
-    InternedGreen(inner);
+) => InternedGreen(inner);
 
 /// Intern [inner]'s produced green through the parse-scoped cache. For
 /// tree-producing parsers: every structurally-equal subtree — same kind,
@@ -55,8 +54,7 @@ Parser<E, GreenNode<Tok, Syn>> internToken<E, Tok, Syn>(
 /// [internToken].
 Parser<E, GreenNode<Tok, Syn>> internTree<E, Tok, Syn>(
   Parser<E, GreenNode<Tok, Syn>> inner,
-) =>
-    InternedGreen(inner);
+) => InternedGreen(inner);
 
 /// Compose child green-producing parsers into a [GreenTree] of kind [kind].
 ///
@@ -89,20 +87,18 @@ Parser<E, GreenNode<Tok, Syn>> internTree<E, Tok, Syn>(
 Parser<ParseError, GreenNode<Tok, Syn>> treeOf<Tok, Syn>(
   Syn kind,
   List<Parser<ParseError, GreenNode<Tok, Syn>>> parts,
-) =>
-    defer(() {
-      final collected = <GreenNode<Tok, Syn>>[];
-      Parser<ParseError, void> chain = succeed<ParseError, void>(null);
-      for (final part in parts) {
-        // Each part runs for its side effect of appending to `collected`;
-        // its value is discarded by the void cast and thenSkip.
-        chain = chain.thenSkip(part.map<void>(collected.add));
-      }
-      return chain.map(
-        (_) =>
-            GreenTree<Tok, Syn>(kind, List<GreenNode<Tok, Syn>>.of(collected)),
-      );
-    });
+) => defer(() {
+  final collected = <GreenNode<Tok, Syn>>[];
+  Parser<ParseError, void> chain = succeed<ParseError, void>(null);
+  for (final part in parts) {
+    // Each part runs for its side effect of appending to `collected`;
+    // its value is discarded by the void cast and thenSkip.
+    chain = chain.thenSkip(part.map<void>(collected.add));
+  }
+  return chain.map(
+    (_) => GreenTree<Tok, Syn>(kind, List<GreenNode<Tok, Syn>>.of(collected)),
+  );
+});
 
 /// Expect a token via [inner]; on failure synthesize a zero-width
 /// [GreenMissing] placeholder of kind [kind] and continue as a
@@ -129,8 +125,7 @@ Parser<ParseError, GreenNode<Tok, Syn>> treeOf<Tok, Syn>(
 Parser<ParseError, GreenNode<Tok, Syn>> expectToken<Tok, Syn>(
   Tok kind,
   Parser<ParseError, GreenNode<Tok, Syn>> inner,
-) =>
-    RecoverWith(inner, succeed(GreenMissing<Tok, Syn>(kind)));
+) => RecoverWith(inner, succeed(GreenMissing<Tok, Syn>(kind)));
 
 /// Panic-mode recovery: if [inner] fails, skip input up to (but not
 /// including) the next character in [syncChars], wrap the skipped text in a

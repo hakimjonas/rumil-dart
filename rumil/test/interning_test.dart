@@ -97,9 +97,7 @@ void main() {
     test('identical subtrees across a parse collapse', () {
       // Two parenthesised digits; intern the inner trees. Same structure →
       // identical.
-      final inner = internTree(
-        treeOf<Tok, Syn>(Syn.expr, [digitTok()]),
-      );
+      final inner = internTree(treeOf<Tok, Syn>(Syn.expr, [digitTok()]));
       final pair = inner.zip(inner).map((p) => [p.$1, p.$2]);
       final r = pair.run('55');
       final trees = (r as Success<ParseError, List<G>>).value;

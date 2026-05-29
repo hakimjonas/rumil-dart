@@ -91,8 +91,12 @@ final class TextEdit {
 
   @override
   String toString() {
-    if (isInsertion) return 'TextEdit.insert($startOffset, ${_preview(newText)})';
-    if (isDeletion) return 'TextEdit.delete($startOffset, $endOffset)';
+    if (isInsertion) {
+      return 'TextEdit.insert($startOffset, ${_preview(newText)})';
+    }
+    if (isDeletion) {
+      return 'TextEdit.delete($startOffset, $endOffset)';
+    }
     return 'TextEdit.replace($startOffset, $endOffset, ${_preview(newText)})';
   }
 
@@ -121,6 +125,8 @@ final class TextEdit {
 
   static String _preview(String s) {
     final escaped = s.replaceAll('\n', r'\n');
-    return escaped.length > 20 ? '"${escaped.substring(0, 20)}…"' : '"$escaped"';
+    return escaped.length > 20
+        ? '"${escaped.substring(0, 20)}…"'
+        : '"$escaped"';
   }
 }

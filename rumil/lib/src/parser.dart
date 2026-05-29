@@ -424,8 +424,7 @@ final class Capture<E, A> extends Parser<E, String> {
 /// Opt-in via the `internToken` / `internTree` combinators. Same
 /// one-case-one-handler integration as [Memo]: the interpreter reads the
 /// cache from `ParserState`; no other parser case threads it.
-final class InternedGreen<E, Tok, Syn>
-    extends Parser<E, GreenNode<Tok, Syn>> {
+final class InternedGreen<E, Tok, Syn> extends Parser<E, GreenNode<Tok, Syn>> {
   /// The parser whose produced green is interned.
   final Parser<E, GreenNode<Tok, Syn>> inner;
 
@@ -439,8 +438,7 @@ final class InternedGreen<E, Tok, Syn>
   /// types rather than `GreenNode<dynamic, dynamic>` (which would not cast
   /// back under Dart's invariant generics).
   Result<E, GreenNode<Tok, Syn>> interpretWith(
-    Result<E, GreenNode<T0, S0>> Function<T0, S0>(InternedGreen<E, T0, S0>)
-    run,
+    Result<E, GreenNode<T0, S0>> Function<T0, S0>(InternedGreen<E, T0, S0>) run,
   ) => run<Tok, Syn>(this);
 }
 

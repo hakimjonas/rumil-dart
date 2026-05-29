@@ -83,10 +83,8 @@ final class RedTree<Tok, Syn> {
   Location get location => Location(_source, offset);
 
   /// Absolute span of this node, from [offset] to [endOffset].
-  Span get span => Span(
-    start: Location(_source, offset),
-    end: Location(_source, endOffset),
-  );
+  Span get span =>
+      Span(start: Location(_source, offset), end: Location(_source, endOffset));
 
   /// The source text covered by this node, reconstructed from the green
   /// subtree. Self-contained — works on synthetic or spliced trees that
@@ -202,8 +200,7 @@ final class RedTree<Tok, Syn> {
   static RedTree<T, S>? _childContaining<T, S>(
     RedTree<T, S> node,
     int targetOffset,
-  ) =>
-      node._childStartContaining(targetOffset);
+  ) => node._childStartContaining(targetOffset);
 
   /// The single child whose half-open range `[offset, endOffset)` contains
   /// [point], or null if none does — constructed on the spot without

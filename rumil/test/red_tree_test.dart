@@ -94,9 +94,7 @@ void main() {
       // line/column is resolved against the source string.
       const source = 'a\nbb\nccc';
       // One token covering 'ccc' at offset 5.
-      final g = Tr(Syn.root, [
-        const Tk(Tok.num, 'a\nbb\nccc'),
-      ]);
+      final g = Tr(Syn.root, [const Tk(Tok.num, 'a\nbb\nccc')]);
       final r = RedTree(g, source);
       final tok = r.children[0];
       expect(tok.offset, 0);
@@ -120,10 +118,7 @@ void main() {
     });
 
     test('Missing contributes empty text', () {
-      final g = Tr(Syn.root, [
-        const Tk(Tok.num, '1'),
-        const Miss(Tok.rparen),
-      ]);
+      final g = Tr(Syn.root, [const Tk(Tok.num, '1'), const Miss(Tok.rparen)]);
       final r = RedTree(g, '1');
       expect(r.text, '1');
     });
@@ -189,9 +184,7 @@ void main() {
 
     test('ancestors from node to root', () {
       final g = Tr(Syn.root, [
-        Tr(Syn.expr, [
-          const Tk(Tok.num, '1'),
-        ]),
+        Tr(Syn.expr, [const Tk(Tok.num, '1')]),
       ]);
       final r = RedTree(g, '1');
       final leaf = r.children[0].children[0]; // the '1' token
@@ -212,9 +205,7 @@ void main() {
       // A wide flat node: ten single-char tokens '0'..'9'. Probe every
       // offset to confirm the binary search lands on the correct child,
       // including first, last, and interior.
-      final kids = <G>[
-        for (var i = 0; i < 10; i++) Tk(Tok.num, '$i'),
-      ];
+      final kids = <G>[for (var i = 0; i < 10; i++) Tk(Tok.num, '$i')];
       final r = RedTree(Tr(Syn.root, kids), '0123456789');
       for (var i = 0; i < 10; i++) {
         expect(r.nodeAt(i)?.text, '$i', reason: 'offset $i');
@@ -287,10 +278,7 @@ void main() {
       // at 1 (excluded), the Missing has no interior (1 < 1 is false), so
       // neither child encloses and the result is the parent. A zero-width
       // placeholder never wins an enclosing query — there is no tie-break.
-      final g = Tr(Syn.root, [
-        const Tk(Tok.num, '1'),
-        const Miss(Tok.rparen),
-      ]);
+      final g = Tr(Syn.root, [const Tk(Tok.num, '1'), const Miss(Tok.rparen)]);
       final r = RedTree(g, '1');
       expect(r.nodeEnclosingRange(1, 1), same(r));
     });
@@ -332,10 +320,7 @@ void main() {
     });
 
     test('syntaxKind / tokenKind / missingKind', () {
-      final g = Tr(Syn.expr, [
-        const Tk(Tok.num, '1'),
-        const Miss(Tok.rparen),
-      ]);
+      final g = Tr(Syn.expr, [const Tk(Tok.num, '1'), const Miss(Tok.rparen)]);
       final r = RedTree(g, '1');
       expect(r.syntaxKind, Syn.expr);
       expect(r.tokenKind, isNull);
@@ -348,9 +333,7 @@ void main() {
   group('findReparseAncestor / findReparseRegion', () {
     test('finds nearest reparsable ancestor including self', () {
       final g = Tr(Syn.root, [
-        Tr(Syn.expr, [
-          const Tk(Tok.num, '1'),
-        ]),
+        Tr(Syn.expr, [const Tk(Tok.num, '1')]),
       ]);
       final r = RedTree(g, '1');
       final leaf = r.children[0].children[0];
@@ -405,10 +388,7 @@ void main() {
 
   group('validateWith', () {
     test('collects Missing as EndOfInput', () {
-      final g = Tr(Syn.root, [
-        const Tk(Tok.num, '1'),
-        const Miss(Tok.rparen),
-      ]);
+      final g = Tr(Syn.root, [const Tk(Tok.num, '1'), const Miss(Tok.rparen)]);
       final r = RedTree(g, '1');
       final errors = r.validateWith((t) => t == Tok.error);
       expect(errors.length, 1);
@@ -428,9 +408,7 @@ void main() {
     });
 
     test('collects error tokens via the predicate', () {
-      final g = Tr(Syn.root, [
-        const Tk(Tok.error, '?'),
-      ]);
+      final g = Tr(Syn.root, [const Tk(Tok.error, '?')]);
       final r = RedTree(g, '?');
       final errors = r.validateWith((t) => t == Tok.error);
       expect(errors.length, 1);
@@ -446,9 +424,7 @@ void main() {
     test('errors come out in source order', () {
       final g = Tr(Syn.root, [
         const Tk(Tok.error, 'a'),
-        Tr(Syn.expr, [
-          const Tk(Tok.error, 'b'),
-        ]),
+        Tr(Syn.expr, [const Tk(Tok.error, 'b')]),
         const Tk(Tok.error, 'c'),
       ]);
       final r = RedTree(g, 'abc');

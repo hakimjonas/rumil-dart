@@ -16,9 +16,8 @@ typedef G = GreenNode<Tok, Syn>;
 Parser<ParseError, G> _numTok() =>
     digit().many1.capture.map((s) => GreenToken<Tok, Syn>(Tok.num, s));
 
-Parser<ParseError, G> _wsTok() => char(
-  ' ',
-).many1.capture.map((s) => GreenToken<Tok, Syn>(Tok.ws, s));
+Parser<ParseError, G> _wsTok() =>
+    char(' ').many1.capture.map((s) => GreenToken<Tok, Syn>(Tok.ws, s));
 
 Parser<ParseError, G> _plusTok() =>
     char('+').map((c) => GreenToken<Tok, Syn>(Tok.plus, c));
@@ -52,8 +51,9 @@ ReparseableParsers<Tok, Syn> _parsers() => ReparseableParsers(
   full: _doc(),
   byKind: {Syn.group: _group()},
   isSimpleToken: (t) => t == Tok.num || t == Tok.ws,
-  onParseFailure: (src) =>
-      GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, src)]),
+  onParseFailure:
+      (src) =>
+          GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, src)]),
 );
 
 /// Tiny minReparseSize so the small test documents actually exercise the
@@ -126,8 +126,9 @@ void main() {
       // logic may fall back. Use a bundle with no byKind to force tier 3.
       final noKinds = ReparseableParsers.onlyFull(
         full: _doc(),
-        onParseFailure: (s) =>
-            GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, s)]),
+        onParseFailure:
+            (s) =>
+                GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, s)]),
       );
       final edit = TextEdit.insert(3, '+');
       final res = tree.applyEdit(src, edit, noKinds);
@@ -140,8 +141,9 @@ void main() {
       final tree = _parse(src);
       final noKinds = ReparseableParsers.onlyFull(
         full: _doc(),
-        onParseFailure: (s) =>
-            GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, s)]),
+        onParseFailure:
+            (s) =>
+                GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, s)]),
       );
       // Make the document unparseable: an unmatched '('.
       final edit = TextEdit.insert(4, '(');

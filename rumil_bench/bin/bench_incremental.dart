@@ -58,8 +58,9 @@ ReparseableParsers<Tok, Syn> _parsers() => ReparseableParsers(
   full: _doc(),
   byKind: {Syn.group: _group()},
   isSimpleToken: (t) => t == Tok.num,
-  onParseFailure: (src) =>
-      GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, src)]),
+  onParseFailure:
+      (src) =>
+          GreenUnexpected<Tok, Syn>([GreenToken<Tok, Syn>(Tok.error, src)]),
 );
 
 /// Build a document of [n] groups: "(12);(12);...".
@@ -128,8 +129,13 @@ void main() {
     bench(
       'token-level (first group)',
       () {
-        final r = incrementalParse(tree, src, tokenEditFirst, parsers,
-            config: config);
+        final r = incrementalParse(
+          tree,
+          src,
+          tokenEditFirst,
+          parsers,
+          config: config,
+        );
         sink += r.tree.textLength + r.strategy.index;
       },
       warmUp: incWarmUp,
@@ -142,8 +148,13 @@ void main() {
     bench(
       'token-level (last group)',
       () {
-        final r = incrementalParse(tree, src, tokenEditLast, parsers,
-            config: config);
+        final r = incrementalParse(
+          tree,
+          src,
+          tokenEditLast,
+          parsers,
+          config: config,
+        );
         sink += r.tree.textLength + r.strategy.index;
       },
       warmUp: incWarmUp,
@@ -155,8 +166,13 @@ void main() {
     bench(
       'block-level (first group)',
       () {
-        final r =
-            incrementalParse(tree, src, blockEdit, parsers, config: config);
+        final r = incrementalParse(
+          tree,
+          src,
+          blockEdit,
+          parsers,
+          config: config,
+        );
         sink += r.tree.textLength + r.strategy.index;
       },
       warmUp: incWarmUp,

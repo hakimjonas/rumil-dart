@@ -4,7 +4,19 @@ import 'package:test/test.dart';
 /// A small token alphabet used across these tests. Concrete enums are
 /// the canonical way for grammar authors to declare a language's tokens;
 /// `JsonTok` here stands in for any real grammar's choice.
-enum JsonTok { lbrace, rbrace, lbracket, rbracket, comma, colon, str, num, bool_, null_, ws }
+enum JsonTok {
+  lbrace,
+  rbrace,
+  lbracket,
+  rbracket,
+  comma,
+  colon,
+  str,
+  num,
+  bool_,
+  null_,
+  ws,
+}
 
 /// A small syntax-tree-node alphabet.
 enum JsonSyn { document, object, array, member, value }
@@ -163,15 +175,9 @@ void main() {
     });
 
     test('equality is structural and recursive', () {
-      final a = JsonUnexpected([
-        const JsonToken(JsonTok.str, 'x'),
-      ]);
-      final b = JsonUnexpected([
-        const JsonToken(JsonTok.str, 'x'),
-      ]);
-      final c = JsonUnexpected([
-        const JsonToken(JsonTok.str, 'y'),
-      ]);
+      final a = JsonUnexpected([const JsonToken(JsonTok.str, 'x')]);
+      final b = JsonUnexpected([const JsonToken(JsonTok.str, 'x')]);
+      final c = JsonUnexpected([const JsonToken(JsonTok.str, 'y')]);
       expect(a, equals(b));
       expect(a, isNot(equals(c)));
     });
@@ -205,9 +211,7 @@ void main() {
       // and wrapped, total source matches the original input text.
       final tree = JsonTree(JsonSyn.value, [
         const JsonToken(JsonTok.num, '5'),
-        JsonUnexpected([
-          const JsonToken(JsonTok.str, '+garbage'),
-        ]),
+        JsonUnexpected([const JsonToken(JsonTok.str, '+garbage')]),
       ]);
       expect(tree.toSource(), '5+garbage');
     });
@@ -267,9 +271,7 @@ void main() {
     });
 
     test('GreenUnexpected uses singular for one child', () {
-      final u = JsonUnexpected([
-        const JsonToken(JsonTok.str, 'x'),
-      ]);
+      final u = JsonUnexpected([const JsonToken(JsonTok.str, 'x')]);
       expect(u.toString(), contains('1 child'));
       expect(u.toString(), isNot(contains('1 children')));
     });

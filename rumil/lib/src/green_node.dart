@@ -92,9 +92,7 @@ final class GreenToken<Tok, Syn> extends GreenNode<Tok, Syn> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is GreenToken<Tok, Syn> &&
-          other.kind == kind &&
-          other.text == text;
+      other is GreenToken<Tok, Syn> && other.kind == kind && other.text == text;
 
   @override
   int get hashCode => Object.hash(kind, text);

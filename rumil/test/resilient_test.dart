@@ -52,10 +52,10 @@ void main() {
         digitTok(),
         rparenTok(),
       ]);
-      final a = (p.run('(1)') as Success<ParseError, G>).value
-          as GreenTree<Tok, Syn>;
-      final b = (p.run('(2)') as Success<ParseError, G>).value
-          as GreenTree<Tok, Syn>;
+      final a =
+          (p.run('(1)') as Success<ParseError, G>).value as GreenTree<Tok, Syn>;
+      final b =
+          (p.run('(2)') as Success<ParseError, G>).value as GreenTree<Tok, Syn>;
       // If the accumulator leaked, b would carry a's children too.
       expect(a.children.length, 3);
       expect(b.children.length, 3);

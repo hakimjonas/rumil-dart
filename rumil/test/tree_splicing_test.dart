@@ -34,7 +34,8 @@ void main() {
       final root = sample();
       const replacement = Tk(Tok.num, '0');
       // Index 0 is the '(' token.
-      final out = TreeSplicing.replaceAt<Tok, Syn>(root, const [0], replacement)!;
+      final out =
+          TreeSplicing.replaceAt<Tok, Syn>(root, const [0], replacement)!;
       expect(GreenNodeOps.toSource<Tok, Syn>(out), '01+2)');
     });
 
@@ -77,7 +78,10 @@ void main() {
 
       // Replace the '1' (path [1,0]).
       final out =
-          TreeSplicing.replaceAt<Tok, Syn>(root, const [1, 0], const Tk(Tok.num, '7'))!
+          TreeSplicing.replaceAt<Tok, Syn>(root, const [
+                1,
+                0,
+              ], const Tk(Tok.num, '7'))!
               as Tr;
 
       // Root's off-path children ('(' and ')') are the SAME instances.
@@ -99,7 +103,10 @@ void main() {
 
     test('original tree is unmodified (persistence)', () {
       final root = sample();
-      TreeSplicing.replaceAt<Tok, Syn>(root, const [1, 0], const Tk(Tok.num, '7'));
+      TreeSplicing.replaceAt<Tok, Syn>(root, const [
+        1,
+        0,
+      ], const Tk(Tok.num, '7'));
       // Original still reads as before.
       expect(GreenNodeOps.toSource<Tok, Syn>(root), '(1+2)');
     });
@@ -109,7 +116,9 @@ void main() {
     test('index out of range at the top level', () {
       final root = sample();
       expect(
-        TreeSplicing.replaceAt<Tok, Syn>(root, const [9], const Tk(Tok.num, '0')),
+        TreeSplicing.replaceAt<Tok, Syn>(root, const [
+          9,
+        ], const Tk(Tok.num, '0')),
         isNull,
       );
     });
@@ -117,11 +126,10 @@ void main() {
     test('index out of range deeper', () {
       final root = sample();
       expect(
-        TreeSplicing.replaceAt<Tok, Syn>(
-          root,
-          const [1, 9],
-          const Tk(Tok.num, '0'),
-        ),
+        TreeSplicing.replaceAt<Tok, Syn>(root, const [
+          1,
+          9,
+        ], const Tk(Tok.num, '0')),
         isNull,
       );
     });
@@ -130,11 +138,10 @@ void main() {
       final root = sample();
       // Index 0 is the '(' token (a leaf); can't descend further.
       expect(
-        TreeSplicing.replaceAt<Tok, Syn>(
-          root,
-          const [0, 0],
-          const Tk(Tok.num, '0'),
-        ),
+        TreeSplicing.replaceAt<Tok, Syn>(root, const [
+          0,
+          0,
+        ], const Tk(Tok.num, '0')),
         isNull,
       );
     });
@@ -142,11 +149,9 @@ void main() {
     test('negative index', () {
       final root = sample();
       expect(
-        TreeSplicing.replaceAt<Tok, Syn>(
-          root,
-          const [-1],
-          const Tk(Tok.num, '0'),
-        ),
+        TreeSplicing.replaceAt<Tok, Syn>(root, const [
+          -1,
+        ], const Tk(Tok.num, '0')),
         isNull,
       );
     });
@@ -159,7 +164,10 @@ void main() {
       ]);
       // root -> child 0 (Unexpected) -> child 1 ('y').
       final out =
-          TreeSplicing.replaceAt<Tok, Syn>(root, const [0, 1], const Tk(Tok.num, 'z'))!;
+          TreeSplicing.replaceAt<Tok, Syn>(root, const [
+            0,
+            1,
+          ], const Tk(Tok.num, 'z'))!;
       expect(GreenNodeOps.toSource<Tok, Syn>(out), 'xz');
       expect((out as Tr).children[0], isA<Unexp>());
     });
@@ -174,7 +182,11 @@ void main() {
       expect(plus.text, '+');
       final path = plus.pathFromRoot;
       final out =
-          TreeSplicing.replaceAt<Tok, Syn>(root, path, const Tk(Tok.plus, '-'))!;
+          TreeSplicing.replaceAt<Tok, Syn>(
+            root,
+            path,
+            const Tk(Tok.plus, '-'),
+          )!;
       expect(GreenNodeOps.toSource<Tok, Syn>(out), '(1-2)');
     });
   });
@@ -187,8 +199,11 @@ void main() {
         current = Tr(Syn.expr, [current]);
       }
       final path = List<int>.filled(100000, 0);
-      final out =
-          TreeSplicing.replaceAt<Tok, Syn>(current, path, const Tk(Tok.num, '1'));
+      final out = TreeSplicing.replaceAt<Tok, Syn>(
+        current,
+        path,
+        const Tk(Tok.num, '1'),
+      );
       expect(out, isNotNull);
       expect(GreenNodeOps.toSource<Tok, Syn>(out!), '1');
     });
