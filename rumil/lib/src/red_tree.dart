@@ -202,14 +202,50 @@ final class RedTree<Tok, Syn> {
   static RedTree<T, S>? _childContaining<T, S>(
     RedTree<T, S> node,
     int targetOffset,
-  ) {
-    for (final child in node.children) {
-      if (targetOffset >= child.offset && targetOffset < child.endOffset) {
-        return child;
+  ) =>
+      node._childStartContaining(targetOffset);
+
+  /// The single child whose half-open range `[offset, endOffset)` contains
+  /// [point], or null if none does — constructed on the spot without
+  /// materializing this node's full [children] list.
+  ///
+  /// Walks this node's green children once, accumulating each child's
+  /// (O(1) cached) [GreenNode.textLength] to track offsets, and stops at the
+  /// first child whose range contains [point]. Builds exactly one red node
+  /// (the match) rather than one per sibling — so a descent that touches K
+  /// levels allocates K reds, not the sum of the levels' fan-outs.
+  ///
+  /// The scan is left-to-right, so it costs O(index-of-match) arithmetic per
+  /// level. For a node with very many children this is linear in the worst
+  /// case (the match near the end); the win here is dropping N allocations
+  /// to 1, not the arithmetic. A cumulative-width index on the green would
+  /// make it O(log N), but that bloats every interior node for a pattern
+  /// only very-wide flat trees hit — deferred until a consumer needs it.
+  ///
+  /// Zero-width children ([GreenMissing]) contain no point (`offset ==
+  /// endOffset`), so the `point < childEnd` test skips them.
+  RedTree<Tok, Syn>? _childStartContaining(int point) {
+    final kids = _greenChildren(green);
+    var childOffset = offset;
+    for (var i = 0; i < kids.length; i++) {
+      final kid = kids[i];
+      final childEnd = childOffset + kid.textLength;
+      if (point >= childOffset && point < childEnd) {
+        return RedTree._(kid, childOffset, this, i, _source);
       }
+      if (childOffset > point) break; // children are offset-sorted; overshot
+      childOffset = childEnd;
     }
     return null;
   }
+
+  /// The green children of [node], or an empty list for leaves.
+  static List<GreenNode<T, S>> _greenChildren<T, S>(GreenNode<T, S> node) =>
+      switch (node) {
+        GreenTree<T, S>(:final children) => children,
+        GreenUnexpected<T, S>(:final children) => children,
+        GreenToken<T, S>() || GreenMissing<T, S>() => const [],
+      };
 
   /// Find the deepest node enclosing the edit range `[editStart, editEnd]`.
   ///
@@ -255,15 +291,13 @@ final class RedTree<Tok, Syn> {
     int editStart,
     int editEnd,
   ) {
-    for (final child in node.children) {
-      // Half-open start containment (matches nodeAt), end-inclusive fit.
-      // Zero-width children (offset == endOffset) never satisfy the strict
-      // `editStart < endOffset`, so they cannot enclose.
-      if (editStart >= child.offset &&
-          editStart < child.endOffset &&
-          editEnd <= child.endOffset) {
-        return child;
-      }
+    // Same half-open start-containment as nodeAt (one red node built, not
+    // the whole children list), then require the range to fit
+    // (editEnd <= endOffset). Zero-width children can't start-contain, so
+    // they're never returned, matching the doc's "never enclose" rule.
+    final child = node._childStartContaining(editStart);
+    if (child != null && editEnd <= child.endOffset) {
+      return child;
     }
     return null;
   }

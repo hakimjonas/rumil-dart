@@ -208,6 +208,40 @@ void main() {
       expect(r.nodeAt(2)?.text, '2');
     });
 
+    test('binary-search child lookup hits the right one among many', () {
+      // A wide flat node: ten single-char tokens '0'..'9'. Probe every
+      // offset to confirm the binary search lands on the correct child,
+      // including first, last, and interior.
+      final kids = <G>[
+        for (var i = 0; i < 10; i++) Tk(Tok.num, '$i'),
+      ];
+      final r = RedTree(Tr(Syn.root, kids), '0123456789');
+      for (var i = 0; i < 10; i++) {
+        expect(r.nodeAt(i)?.text, '$i', reason: 'offset $i');
+      }
+      expect(r.nodeAt(10), isNull); // end-of-input
+    });
+
+    test('zero-width children in a run are never returned', () {
+      // 'a' then three Missing placeholders (all zero-width at offset 1)
+      // then 'b'. nodeAt(1) must find 'b' (the real node starting at 1),
+      // never a Missing. nodeAt(0) finds 'a'.
+      final r = RedTree(
+        Tr(Syn.root, [
+          const Tk(Tok.num, 'a'),
+          const Miss(Tok.rparen),
+          const Miss(Tok.rparen),
+          const Miss(Tok.rparen),
+          const Tk(Tok.num, 'b'),
+        ]),
+        'ab',
+      );
+      expect(r.nodeAt(0)?.text, 'a');
+      expect(r.nodeAt(1)?.isToken, isTrue);
+      expect(r.nodeAt(1)?.text, 'b');
+      expect(r.nodeAt(1)?.isMissing, isFalse);
+    });
+
     test('returns null at end-of-input', () {
       final r = RedTree(onePlusTwo(), '1+2');
       expect(r.nodeAt(3), isNull);
