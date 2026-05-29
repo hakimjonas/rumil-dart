@@ -1,6 +1,7 @@
 /// Mutable parser state: input, position, line/column tracking, memo tables.
 library;
 
+import 'green_cache.dart';
 import 'location.dart';
 import 'memo.dart';
 
@@ -33,6 +34,14 @@ final class ParserState {
 
   /// Active LR heads by position.
   late final Map<int, LRHead> heads = {};
+
+  /// Parse-scoped hash-cons cache for `InternedGreen`. The cache is
+  /// non-generic (greens stored at `GreenNode<Object?, Object?>`, [intern]
+  /// a generic method), so [ParserState] holds it without being
+  /// parameterised on a language's `(Tok, Syn)` — which would cascade
+  /// through every interpreter signature. Created lazily; parses with no
+  /// interning pay nothing.
+  late final GreenCache greenCache = GreenCache();
 
   /// Creates state for parsing [input].
   ParserState(this.input) : _offset = 0;

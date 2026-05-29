@@ -4,6 +4,8 @@ library;
 import 'dart:math' as math;
 
 import 'errors.dart';
+import 'green_cache.dart';
+import 'green_node.dart';
 import 'memo.dart';
 import 'parser.dart';
 import 'radix.dart';
@@ -662,9 +664,48 @@ Result<E, A> _interpretCold<E, A>(Parser<E, A> p, ParserState state) {
           )
           as Result<E, A>;
 
+    case final InternedGreen<E, dynamic, dynamic> ig:
+      return ig.interpretWith(
+            <T0, S0>(InternedGreen<E, T0, S0> typed) =>
+                _interpretInternedGreen<E, T0, S0>(typed, state),
+          )
+          as Result<E, A>;
+
     default:
       throw StateError('Unreachable: unhandled ${p.runtimeType}');
   }
+}
+
+/// Handler for [InternedGreen]. Runs `inner`, then on success/partial
+/// replaces the produced green with the parse-scoped cache's canonical
+/// instance. Failures pass through untouched — interning only ever rewrites
+/// a successful green.
+///
+/// [Tok]/[Syn] are reified by [InternedGreen.interpretWith] at the dispatch
+/// site, so this handler produces a precisely-typed result. The cache is
+/// non-generic ([GreenCache.intern] is a generic method), so no cache-level
+/// cast is needed here.
+Result<E, GreenNode<Tok, Syn>> _interpretInternedGreen<E, Tok, Syn>(
+  InternedGreen<E, Tok, Syn> ig,
+  ParserState state,
+) {
+  final cache = state.greenCache;
+  final r = interpretI<E, GreenNode<Tok, Syn>>(ig.inner, state);
+  return switch (r) {
+    Success<E, GreenNode<Tok, Syn>>(:final value, :final consumed) =>
+      Success<E, GreenNode<Tok, Syn>>(cache.intern(value), consumed),
+    Partial<E, GreenNode<Tok, Syn>>(
+      :final value,
+      :final errorThunk,
+      :final consumed,
+    ) =>
+      Partial<E, GreenNode<Tok, Syn>>(
+        cache.intern(value),
+        errorThunk,
+        consumed,
+      ),
+    Failure<E, GreenNode<Tok, Syn>>() => r,
+  };
 }
 
 // ===========================================================================
@@ -1584,6 +1625,11 @@ Failure<E, A>? _firstFail<E, A>(Parser<E, A> p, ParserState state) {
 
       case LookAhead(:final parser):
         node = parser;
+
+      case InternedGreen(:final inner):
+        // Interning only rewrites a successful green; a failing inner
+        // propagates unchanged, so the leading-char test peels the wrapper.
+        node = inner;
 
       default:
         return null;

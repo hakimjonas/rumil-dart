@@ -25,6 +25,39 @@ import 'green_node.dart';
 import 'parser.dart';
 import 'primitives.dart';
 
+/// Intern [inner]'s produced green through the parse-scoped cache, so every
+/// structurally-equal token green (e.g. each `GreenToken(num, "5")` in the
+/// parse) collapses to one canonical heap instance.
+///
+/// For token-producing parsers (leaves). Equality cost is `kind == &&
+/// text ==` — cheap. Use [internTree] for tree-producing parsers, where
+/// equality recurses into children. Both produce the same [InternedGreen]
+/// ADT case; the split is a cost signal to the reader, not two mechanisms.
+///
+/// Interning makes structurally-equal siblings `identical`. RedTree sibling
+/// disambiguation uses `childIndex`, not green reference identity, so it is
+/// unaffected — see `green_cache.dart`'s sibling-identity contract.
+Parser<E, GreenNode<Tok, Syn>> internToken<E, Tok, Syn>(
+  Parser<E, GreenNode<Tok, Syn>> inner,
+) =>
+    InternedGreen(inner);
+
+/// Intern [inner]'s produced green through the parse-scoped cache. For
+/// tree-producing parsers: every structurally-equal subtree — same kind,
+/// same children in order, children themselves structurally equal —
+/// collapses to one canonical instance.
+///
+/// Cost differs from [internToken]: the cache's structural equality recurses
+/// into the tree's children, so a lookup is O(subtree size). Worth it only
+/// when structurally-equal subtrees actually recur in the workload — then
+/// one cache hit replaces allocating every descendant; if they don't, the
+/// recursive equality buys nothing. Same [InternedGreen] ADT case as
+/// [internToken].
+Parser<E, GreenNode<Tok, Syn>> internTree<E, Tok, Syn>(
+  Parser<E, GreenNode<Tok, Syn>> inner,
+) =>
+    InternedGreen(inner);
+
 /// Compose child green-producing parsers into a [GreenTree] of kind [kind].
 ///
 /// The child parsers run in sequence; all must succeed (or recover to a
