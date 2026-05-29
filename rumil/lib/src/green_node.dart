@@ -40,6 +40,16 @@ import 'equality.dart';
 sealed class GreenNode<Tok, Syn> {
   /// Base constructor.
   const GreenNode();
+
+  /// Total source-character length of this subtree, in O(1).
+  ///
+  /// Leaves ([GreenToken], [GreenMissing]) compute it directly; interior
+  /// nodes ([GreenTree], [GreenUnexpected]) store it, summed once from
+  /// their children's lengths at construction. This keeps offset
+  /// computation in [RedTree] linear in tree depth rather than quadratic —
+  /// descending N levels reads N cached lengths instead of re-walking N
+  /// subtrees. Matches Rowan's stored-width design.
+  int get textLength;
 }
 
 /// Leaf token: kind + raw text.
@@ -53,6 +63,9 @@ final class GreenToken<Tok, Syn> extends GreenNode<Tok, Syn> {
 
   /// Creates a token green.
   const GreenToken(this.kind, this.text);
+
+  @override
+  int get textLength => text.length;
 
   @override
   bool operator ==(Object other) =>
@@ -76,8 +89,11 @@ final class GreenTree<Tok, Syn> extends GreenNode<Tok, Syn> {
   /// The children, in source order.
   final List<GreenNode<Tok, Syn>> children;
 
-  /// Creates a tree green.
-  const GreenTree(this.kind, this.children);
+  @override
+  final int textLength;
+
+  /// Creates a tree green. [textLength] is summed once from [children].
+  GreenTree(this.kind, this.children) : textLength = _sumLengths(children);
 
   @override
   bool operator ==(Object other) =>
@@ -111,6 +127,9 @@ final class GreenMissing<Tok, Syn> extends GreenNode<Tok, Syn> {
   const GreenMissing(this.expected);
 
   @override
+  int get textLength => 0;
+
+  @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is GreenMissing<Tok, Syn> && other.expected == expected;
@@ -133,8 +152,12 @@ final class GreenUnexpected<Tok, Syn> extends GreenNode<Tok, Syn> {
   /// The skipped greens, in source order.
   final List<GreenNode<Tok, Syn>> children;
 
-  /// Creates an unexpected-region wrapper.
-  const GreenUnexpected(this.children);
+  @override
+  final int textLength;
+
+  /// Creates an unexpected-region wrapper. [textLength] is summed once from
+  /// [children].
+  GreenUnexpected(this.children) : textLength = _sumLengths(children);
 
   @override
   bool operator ==(Object other) =>
@@ -158,33 +181,14 @@ final class GreenUnexpected<Tok, Syn> extends GreenNode<Tok, Syn> {
 /// [GreenNodeExt] extension below forwards to these for ergonomic
 /// `node.textLength` / `node.toSource()` call sites.
 abstract final class GreenNodeOps {
-  /// Total source-character length of the subtree rooted at [node].
+  /// Total source-character length of the subtree rooted at [node], O(1).
   ///
-  /// Iterative depth-first walk over an explicit worklist — chain depth
-  /// lives in heap-allocated frames, not in the Dart call stack. A
-  /// pathologically deep nested tree (e.g. 5000-level `((((...))))`)
-  /// completes in memory-bounded space without overflow.
-  ///
-  /// [GreenToken] contributes its [GreenToken.text] length.
-  /// [GreenTree] / [GreenUnexpected] sum across children.
-  /// [GreenMissing] contributes zero (it is a zero-width placeholder).
-  static int textLength<Tok, Syn>(GreenNode<Tok, Syn> node) {
-    var total = 0;
-    final stack = <GreenNode<Tok, Syn>>[node];
-    while (stack.isNotEmpty) {
-      final current = stack.removeLast();
-      switch (current) {
-        case GreenToken<Tok, Syn>(:final text):
-          total += text.length;
-        case GreenMissing<Tok, Syn>():
-          break;
-        case GreenTree<Tok, Syn>(:final children):
-        case GreenUnexpected<Tok, Syn>(:final children):
-          stack.addAll(children);
-      }
-    }
-    return total;
-  }
+  /// Reads the cached [GreenNode.textLength] — interior nodes store it,
+  /// summed once at construction; leaves compute it directly. This is the
+  /// load-bearing property that keeps [RedTree] offset computation linear
+  /// in tree depth: descending N levels reads N cached lengths rather than
+  /// re-walking N subtrees (which would be O(depth²)).
+  static int textLength<Tok, Syn>(GreenNode<Tok, Syn> node) => node.textLength;
 
   /// Reconstruct the original source covered by the subtree rooted at
   /// [node]. Concatenates [GreenToken.text] in source-order traversal,
@@ -218,16 +222,25 @@ abstract final class GreenNodeOps {
   }
 }
 
-/// Ergonomic accessors on [GreenNode]. Forwards to [GreenNodeOps] so
-/// callers can write `node.textLength` and `node.toSource()` instead of
-/// `GreenNodeOps.textLength<Tok, Syn>(node)`.
+/// Ergonomic source accessor on [GreenNode]. [GreenNode.textLength] is
+/// already an instance getter; this adds the matching `node.toSource()`
+/// so callers don't have to reach through [GreenNodeOps].
 extension GreenNodeExt<Tok, Syn> on GreenNode<Tok, Syn> {
-  /// Source-character length of this subtree. See [GreenNodeOps.textLength].
-  int get textLength => GreenNodeOps.textLength(this);
-
   /// Reconstructed source covered by this subtree. See
   /// [GreenNodeOps.toSource].
   String toSource() => GreenNodeOps.toSource(this);
+}
+
+/// Sum of children's cached text lengths. O(immediate children) because
+/// each child's [GreenNode.textLength] is itself O(1). Used by the
+/// [GreenTree] / [GreenUnexpected] constructors to compute their stored
+/// length once, bottom-up.
+int _sumLengths<Tok, Syn>(List<GreenNode<Tok, Syn>> children) {
+  var total = 0;
+  for (final child in children) {
+    total += child.textLength;
+  }
+  return total;
 }
 
 String _quote(String text) {
