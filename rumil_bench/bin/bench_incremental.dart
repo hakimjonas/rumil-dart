@@ -78,17 +78,47 @@ void main() {
   // from forcing full reparse on large docs.
   const config = IncrementalConfig(minReparseSize: 4);
 
+  // Anti-elision sink. Every benchmark body feeds an observable value
+  // (a tree's textLength, or the strategy index) into this; it is printed
+  // at the end so neither AOT nor dart2wasm can prove the work unobserved
+  // and prune it. Without this, discarding incrementalParse's result lets
+  // the optimizer elide most of the splice — which would make the numbers
+  // measure dead-code elimination, not the operation.
+  var sink = 0;
+
   for (final n in [100, 1000, 10000]) {
     final src = _buildSource(n);
     final tree = (_doc().run(src) as Success<ParseError, G>).value;
     print('=== Document: $n groups (${src.length} chars) ===');
 
+    // Warmup / iteration budgets sized so V8 (the dart2wasm host) reaches
+    // TurboFan steady state and even the sub-microsecond incremental paths
+    // are measured over a tens-of-ms window, well above the timer noise
+    // floor. The same generous warmup is harmless for AOT (already fully
+    // compiled). Full reparse is ~ms-scale so it needs far fewer iterations
+    // to fill the same window.
+    const incWarmUp = 20000;
+    // Scale iterations down as per-op cost rises with document size, so each
+    // case runs for a bounded (~tens of ms to a few hundred ms) window
+    // rather than seconds. 200k at n=100 (~sub-μs) ≈ tens of ms; 5k at
+    // n=10000 (~tens of μs) ≈ a few hundred ms — both well above noise.
+    final incIters = switch (n) {
+      >= 10000 => 5000,
+      >= 1000 => 50000,
+      _ => 200000,
+    };
+    final fullIters = n >= 10000 ? 200 : 2000;
+    const fullWarmUp = 200;
+
     // Baseline: full reparse from scratch.
     bench(
       'full reparse',
-      () => _doc().run(src),
-      warmUp: 5,
-      iterations: n >= 10000 ? 50 : 200,
+      () {
+        final r = _doc().run(src);
+        sink += (r as Success<ParseError, G>).value.textLength;
+      },
+      warmUp: fullWarmUp,
+      iterations: fullIters,
     );
 
     // Tier 1: token-level edit in the FIRST group's digit run (offset 1).
@@ -97,10 +127,13 @@ void main() {
     final tokenEditFirst = TextEdit.insert(1, '9');
     bench(
       'token-level (first group)',
-      () => incrementalParse(tree, src, tokenEditFirst, parsers,
-          config: config),
-      warmUp: 5,
-      iterations: 200,
+      () {
+        final r = incrementalParse(tree, src, tokenEditFirst, parsers,
+            config: config);
+        sink += r.tree.textLength + r.strategy.index;
+      },
+      warmUp: incWarmUp,
+      iterations: incIters,
     );
 
     // Tier 1: token-level edit in the LAST group's digit run.
@@ -108,22 +141,31 @@ void main() {
     final tokenEditLast = TextEdit.insert(lastDigitOffset, '9');
     bench(
       'token-level (last group)',
-      () => incrementalParse(tree, src, tokenEditLast, parsers,
-          config: config),
-      warmUp: 5,
-      iterations: 200,
+      () {
+        final r = incrementalParse(tree, src, tokenEditLast, parsers,
+            config: config);
+        sink += r.tree.textLength + r.strategy.index;
+      },
+      warmUp: incWarmUp,
+      iterations: incIters,
     );
 
     // Tier 2: block-level edit — insert '+' (non-simple) into the first group.
     final blockEdit = TextEdit.insert(3, '+'); // "(12+);..."
     bench(
       'block-level (first group)',
-      () =>
-          incrementalParse(tree, src, blockEdit, parsers, config: config),
-      warmUp: 5,
-      iterations: 200,
+      () {
+        final r =
+            incrementalParse(tree, src, blockEdit, parsers, config: config);
+        sink += r.tree.textLength + r.strategy.index;
+      },
+      warmUp: incWarmUp,
+      iterations: incIters,
     );
 
     print('');
   }
+
+  // Print the sink so the accumulated work cannot be eliminated.
+  print('(sink: $sink)');
 }
