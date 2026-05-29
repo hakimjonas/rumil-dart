@@ -15,5 +15,6 @@ export 'src/parser.dart';
 export 'src/primitives.dart';
 export 'src/radix.dart' show RadixNode;
 export 'src/red_tree.dart';
+export 'src/resilient.dart';
 export 'src/result.dart';
 export 'src/state.dart' show ParserState;
