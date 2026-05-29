@@ -653,6 +653,12 @@ final class PrattPrefix<E, A> {
 
   /// Creates a prefix descriptor.
   const PrattPrefix(this.symbol, this.bp, this.fn);
+
+  /// The transform with its type erased to `Function`. The interpreter drives
+  /// Pratt at `A = dynamic`; reading [fn] through a `PrattPrefix<dynamic,
+  /// dynamic>` would impose a `dynamic Function(dynamic)` cast that a typed
+  /// `int Function(int)` fails (parameter contravariance). Invoked dynamically.
+  Function get fnErased => fn;
 }
 
 /// Top-Down Operator Precedence (Pratt) parser node.
@@ -721,4 +727,10 @@ final class Pratt<E, A> extends Parser<E, A> {
     )
     run,
   ) => run<A>(atom, prefixes, getOp, minBp, opTable);
+
+  /// The `getOp` parser with its value type erased, for the erased trampoline
+  /// drive. Reading [getOp] through a `Pratt<dynamic, dynamic>` destructure
+  /// would type it `Parser<dynamic, PrattOp<dynamic>>`, which the loop wants as
+  /// `Parser<dynamic, dynamic>`; this getter upcasts covariantly, no cast.
+  Parser<E, Object?> get getOpErased => getOp;
 }

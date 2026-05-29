@@ -29,6 +29,13 @@ final class PrattOpInfix<A> extends PrattOp<A> {
 
   /// Creates an infix operator descriptor.
   const PrattOpInfix(this.lbp, this.rbp, this.combine);
+
+  /// The combiner with its type erased to `Function`. The interpreter drives
+  /// Pratt at `A = dynamic`; reading [combine] through a `PrattOpInfix<dynamic>`
+  /// destructure would impose a `dynamic Function(dynamic, dynamic)` cast that
+  /// a typed combiner like `int Function(int, int)` fails (parameter
+  /// contravariance). This getter erases to `Function` (invoked dynamically).
+  Function get combineFn => combine;
 }
 
 /// Postfix operator: binds to the accumulated LHS, no RHS needed.
@@ -41,6 +48,10 @@ final class PrattOpPostfix<A> extends PrattOp<A> {
 
   /// Creates a postfix operator descriptor.
   const PrattOpPostfix(this.bp, this.apply);
+
+  /// The transform with its type erased to `Function`. See
+  /// [PrattOpInfix.combineFn].
+  Function get applyFn => apply;
 }
 
 /// Post-prefix guard applied before committing to an operator match.

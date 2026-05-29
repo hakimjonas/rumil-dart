@@ -305,6 +305,19 @@ final class _ContChainRhs extends _Cont {
   );
 }
 
+/// Awaiting an `atom` (nud) subparse on behalf of a suspended Pratt loop.
+///
+/// The Pratt operator loop ([_PrattRun]) is iterative within one level, but
+/// its atom subparse can itself be a nested Pratt (`'(' expr ')'`). Rather
+/// than calling `interpretI(atom)` on the host stack, the loop suspends into
+/// this frame and the main trampoline drives the atom; the apply handler feeds
+/// the atom result back via [_PrattRun.resumeWithAtom] and re-steps.
+final class _ContPratt extends _Cont {
+  final _PrattRun run;
+  final _Cont next;
+  const _ContPratt(this.run, this.next);
+}
+
 /// Whether a parser is a `Capture(Many(Satisfy))` / `Capture(Many1(Satisfy))`
 /// shape that the char-scan fast path handles directly. Such captures must be
 /// recognized in [_leafInterpret] rather than framed as a generic `Capture`,
@@ -545,10 +558,35 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         currentParser = elementParser;
         continue eval;
 
+      case Pratt<dynamic, dynamic>(
+        :final atom,
+        :final prefixes,
+        :final getOpErased,
+        :final minBp,
+        :final opTable,
+      ):
+        final run = _PrattRun(
+          atom,
+          prefixes,
+          getOpErased,
+          minBp,
+          opTable,
+          state,
+        );
+        final r = run.step();
+        if (r != null) {
+          result = r;
+        } else {
+          // Suspended awaiting an atom subparse: descend, resume via _ContPratt.
+          cont = _ContPratt(run, cont);
+          currentParser = run.pendingAtom!;
+          continue eval;
+        }
+
       default:
-        // Terminals, char-scan fast paths, Pratt, Memo, Trace/Debug,
-        // InternedGreen: produced directly (some recurse on the host stack —
-        // see [_leafInterpret]).
+        // Terminals, char-scan fast paths, Memo, Trace/Debug, InternedGreen:
+        // produced directly (some recurse on the host stack — see
+        // [_leafInterpret]).
         result = _leafInterpret(cp, state);
     }
 
@@ -1191,6 +1229,21 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           );
           cont = next;
           continue apply;
+
+        case _ContPratt(:final run, :final next):
+          // The atom subparse just completed (in `result`). Feed it back and
+          // re-step the Pratt loop. If it suspends again (a further nested
+          // atom), descend once more; otherwise its final Result flows on.
+          run.resumeWithAtom(result);
+          final r = run.step();
+          if (r != null) {
+            result = r;
+            cont = next;
+            continue apply;
+          }
+          cont = _ContPratt(run, next);
+          currentParser = run.pendingAtom!;
+          continue eval;
       }
     }
   }
@@ -1371,23 +1424,8 @@ Result<Object?, Object?> _leafInterpret(
       if (enableLR) return _interpretMemo<Object?, Object?>(inner, key, state);
       return _interpretSimpleMemo<Object?, Object?>(inner, key, state);
 
-    // Pratt is always ParseError-typed (its operators carry ParseError); cast
-    // to the concrete E so `interpretWith`'s generic callback unifies with
-    // `_interpretPratt<ParseError, T>`. A `dynamic` E would make the callback's
-    // generic function type non-assignable.
-    case final Pratt<dynamic, dynamic> pr:
-      return (pr as Pratt<ParseError, dynamic>).interpretWith(
-            <T>(atom, prefixes, getOp, minBp, opTable) =>
-                _interpretPratt<ParseError, T>(
-                  atom,
-                  prefixes,
-                  getOp,
-                  minBp,
-                  opTable,
-                  state,
-                ),
-          )
-          as Result<Object?, Object?>;
+    // Pratt is driven in the eval phase of `interpretI` (its atom subparse
+    // rides the continuation chain via _ContPratt), so it never reaches here.
 
     case final InternedGreen<dynamic, dynamic, dynamic> ig:
       return (ig as InternedGreen<ParseError, dynamic, dynamic>).interpretWith(
@@ -1774,6 +1812,12 @@ Result<E, void> _skipManyString<E>(String target, ParserState state) {
 /// popped and either combined with [savedLhs] (infix) or applied to lhs
 /// alone (prefix). [outerMinBp] is the minBp threshold of the surrounding
 /// scope, restored when the frame pops.
+///
+/// `combine`/`apply` are stored as `Function` (not `A Function(...)`): the
+/// interpreter drives Pratt at `A = dynamic`, and a typed combiner like
+/// `int Function(int, int)` is not assignable to `dynamic Function(dynamic,
+/// dynamic)` (parameter contravariance). They are invoked dynamically in
+/// [_applyFrame].
 sealed class _PrattFrame<A> {
   const _PrattFrame();
   int get outerMinBp;
@@ -1781,201 +1825,235 @@ sealed class _PrattFrame<A> {
 
 final class _PrattInfixFrame<A> extends _PrattFrame<A> {
   final A savedLhs;
-  final A Function(A, A) combine;
+  final Function combine;
   @override
   final int outerMinBp;
   const _PrattInfixFrame(this.savedLhs, this.combine, this.outerMinBp);
 }
 
 final class _PrattPrefixFrame<A> extends _PrattFrame<A> {
-  final A Function(A) apply;
+  final Function apply;
   @override
   final int outerMinBp;
   const _PrattPrefixFrame(this.apply, this.outerMinBp);
 }
 
-/// Pratt (Top-Down Operator Precedence) iterative interpreter.
+/// Resumable Pratt (Top-Down Operator Precedence) loop.
 ///
-/// Maintains an explicit operator stack so unbounded right-associative
-/// chains (`a^b^c^…`) and prefix chains (`---5`) do not consume Dart call
-/// frames. Two phases keyed by `lhsValid`:
+/// The operator loop is iterative within one level (an explicit
+/// [_PrattFrame] stack, so unbounded right-associative chains `a^b^c^…` and
+/// prefix chains `---5` do not consume Dart call frames). The one subparse
+/// that nests by *structural depth* is the **atom** (`'(' expr ')'`), which
+/// can itself be a nested Pratt. Rather than calling `interpretI(atom)` on the
+/// host stack, [step] runs until it needs an atom, stashes [pendingAtom], and
+/// returns null; the main trampoline drives the atom under a [_ContPratt]
+/// frame and feeds the result back via [resumeWithAtom], then re-steps. Atom
+/// nesting therefore lives on the heap continuation chain, like every other
+/// combinator.
 ///
-/// - PARSE_NUD: try each prefix in [prefixes]; on a hit, push a
-///   [_PrattPrefixFrame] and re-enter PARSE_NUD with the prefix's bp as
-///   the new minBp. On a miss-of-all, run [atom] to obtain the lhs and
-///   transition to LOOP_OPS.
-/// - LOOP_OPS: peek the next operator (via [opTable] when available, else
-///   the general [getOp] parser). On infix at lbp > minBp, push a
-///   [_PrattInfixFrame] and transition to PARSE_NUD with rbp as the new
-///   minBp. On postfix at bp > minBp, apply in place and continue. On no
-///   match or low-bp, pop a single frame: combine (infix) or apply
-///   (prefix), restore [outerMinBp], and stay in LOOP_OPS.
+/// Prefix symbols and the general `getOp` parser are operator *terminals* —
+/// bounded, not depth-nesting — so they remain host-recursive `interpretI`
+/// calls inside [step].
 ///
-/// The opTable fast path avoids allocating Failure/error-thunk/Location
-/// per iteration when every operator has a literal-prefix symbol.
-Result<E, A> _interpretPratt<E, A>(
-  Parser<E, A> atom,
-  List<PrattPrefix<E, A>> prefixes,
-  Parser<E, PrattOp<A>> getOp,
-  int initialMinBp,
-  PrattOpTable<A>? opTable,
-  ParserState state,
-) {
-  final stack = <_PrattFrame<A>>[];
-  final table = opTable;
-  final input = state.input;
-  final consumesWs = table?.consumesTrailingWs ?? false;
-  var minBp = initialMinBp;
-  var totalConsumed = 0;
+/// Two phases keyed by `lhsValid`:
+/// - PARSE_NUD: try each prefix; on a hit, push a [_PrattPrefixFrame] and
+///   re-enter with the prefix's bp as the new minBp. On a miss-of-all, request
+///   the [atom] (suspend) to obtain the lhs, then transition to LOOP_OPS.
+/// - LOOP_OPS: peek the next operator (via [_opTable] when available, else the
+///   general [_getOp] parser). On infix at lbp > minBp, push a
+///   [_PrattInfixFrame] and transition to PARSE_NUD with rbp as the new minBp.
+///   On postfix at bp > minBp, apply in place. On no match or low-bp, pop a
+///   single frame and stay in LOOP_OPS.
+class _PrattRun {
+  final Parser<dynamic, dynamic> atom;
+  final List<PrattPrefix<dynamic, dynamic>> prefixes;
+  final Parser<dynamic, dynamic> getOp;
+  final PrattOpTable<dynamic>? opTable;
+  final ParserState state;
 
-  late A lhs;
-  var lhsValid = false;
+  final stack = <_PrattFrame<dynamic>>[];
+  int minBp;
+  int totalConsumed = 0;
+  Object? lhs;
+  bool lhsValid = false;
 
-  outer:
-  while (true) {
-    if (!lhsValid) {
-      // PARSE_NUD: try prefixes (each pushes a frame and re-loops),
-      // then fall through to atom.
-      var matchedPrefix = false;
-      for (final pre in prefixes) {
-        final snapshot = state.save();
-        final r = interpretI<E, Object?>(pre.symbol, state);
-        if (r is Success<E, Object?>) {
-          stack.add(_PrattPrefixFrame<A>(pre.fn, minBp));
-          minBp = pre.bp;
-          totalConsumed += r.consumed;
-          matchedPrefix = true;
-          break;
-        }
-        state.restore(snapshot);
-      }
-      if (matchedPrefix) continue outer;
+  /// When [step] suspends to request a nud subparse, the parser to descend
+  /// into (always [atom]). The trampoline reads it, runs it, and resumes.
+  Parser<dynamic, dynamic>? pendingAtom;
 
-      final atomR = interpretI<E, A>(atom, state);
-      if (atomR is! Success<E, A>) return atomR;
+  _PrattRun(
+    this.atom,
+    this.prefixes,
+    this.getOp,
+    int initialMinBp,
+    this.opTable,
+    this.state,
+  ) : minBp = initialMinBp;
+
+  /// Feed a completed atom subparse result back into the loop. On failure the
+  /// whole Pratt parse fails (returned by the next [step]); on success the
+  /// value becomes the current lhs.
+  Result<Object?, Object?>? _atomFailure;
+  void resumeWithAtom(Result<Object?, Object?> atomR) {
+    if (atomR is Success<Object?, Object?>) {
       lhs = atomR.value;
       totalConsumed += atomR.consumed;
       lhsValid = true;
-    }
-
-    // LOOP_OPS: try to extend lhs with the next operator.
-    if (table != null) {
-      if (!state.hasChar) {
-        if (stack.isNotEmpty) {
-          final popped = _applyFrame(stack.removeLast(), lhs);
-          lhs = popped.lhs;
-          minBp = popped.outerMinBp;
-          continue outer;
-        }
-        return Success<E, A>(lhs, totalConsumed);
-      }
-      final bucket = table.entriesAt(input.codeUnitAt(state.offset));
-      if (bucket == null) {
-        if (stack.isNotEmpty) {
-          final popped = _applyFrame(stack.removeLast(), lhs);
-          lhs = popped.lhs;
-          minBp = popped.outerMinBp;
-          continue outer;
-        }
-        return Success<E, A>(lhs, totalConsumed);
-      }
-
-      final matchOffset = state.offset;
-      PrattOpEntry<A>? matched;
-      for (final entry in bucket) {
-        if (_matchEntry(entry, input, matchOffset)) {
-          matched = entry;
-          break;
-        }
-      }
-      if (matched == null) {
-        if (stack.isNotEmpty) {
-          final popped = _applyFrame(stack.removeLast(), lhs);
-          lhs = popped.lhs;
-          minBp = popped.outerMinBp;
-          continue outer;
-        }
-        return Success<E, A>(lhs, totalConsumed);
-      }
-
-      final op = matched.op;
-      final prefixLen = matched.prefix.length;
-      switch (op) {
-        case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
-          if (lbp <= minBp) {
-            if (stack.isNotEmpty) {
-              final popped = _applyFrame(stack.removeLast(), lhs);
-              lhs = popped.lhs;
-              minBp = popped.outerMinBp;
-              continue outer;
-            }
-            return Success<E, A>(lhs, totalConsumed);
-          }
-          state.advanceN(prefixLen);
-          totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
-          stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
-          minBp = rbp;
-          lhsValid = false;
-          continue outer;
-        case PrattOpPostfix<A>(:final bp, :final apply):
-          if (bp <= minBp) {
-            if (stack.isNotEmpty) {
-              final popped = _applyFrame(stack.removeLast(), lhs);
-              lhs = popped.lhs;
-              minBp = popped.outerMinBp;
-              continue outer;
-            }
-            return Success<E, A>(lhs, totalConsumed);
-          }
-          state.advanceN(prefixLen);
-          totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
-          lhs = apply(lhs);
-      }
     } else {
-      final snapshot = state.save();
-      final opResult = interpretI<E, PrattOp<A>>(getOp, state);
-      if (opResult is! Success<E, PrattOp<A>>) {
-        state.restore(snapshot);
-        if (stack.isNotEmpty) {
-          final popped = _applyFrame(stack.removeLast(), lhs);
-          lhs = popped.lhs;
-          minBp = popped.outerMinBp;
-          continue outer;
+      _atomFailure = atomR;
+    }
+  }
+
+  /// Advance the loop. Returns a final [Result] when the Pratt parse is
+  /// complete, or null when it has suspended awaiting [pendingAtom].
+  Result<Object?, Object?>? step() {
+    if (_atomFailure != null) return _atomFailure;
+    final state = this.state;
+    final input = state.input;
+    final table = opTable;
+    final consumesWs = table?.consumesTrailingWs ?? false;
+
+    while (true) {
+      if (!lhsValid) {
+        // PARSE_NUD: try prefixes (each pushes a frame and re-loops), then
+        // request the atom.
+        var matchedPrefix = false;
+        for (final pre in prefixes) {
+          final snapshot = state.save();
+          final r = interpretI<dynamic, Object?>(pre.symbol, state);
+          if (r is Success<dynamic, Object?>) {
+            stack.add(_PrattPrefixFrame<dynamic>(pre.fnErased, minBp));
+            minBp = pre.bp;
+            totalConsumed += r.consumed;
+            matchedPrefix = true;
+            break;
+          }
+          state.restore(snapshot);
         }
-        return Success<E, A>(lhs, totalConsumed);
+        if (matchedPrefix) continue;
+
+        // Suspend: the trampoline runs `atom` and calls resumeWithAtom.
+        pendingAtom = atom;
+        return null;
       }
-      switch (opResult.value) {
-        case PrattOpInfix<A>(:final lbp, :final rbp, :final combine):
-          if (lbp <= minBp) {
-            state.restore(snapshot);
-            if (stack.isNotEmpty) {
-              final popped = _applyFrame(stack.removeLast(), lhs);
-              lhs = popped.lhs;
-              minBp = popped.outerMinBp;
-              continue outer;
-            }
-            return Success<E, A>(lhs, totalConsumed);
+
+      // LOOP_OPS: try to extend lhs with the next operator.
+      if (table != null) {
+        if (!state.hasChar) {
+          if (stack.isNotEmpty) {
+            _popFrame();
+            continue;
           }
-          totalConsumed += opResult.consumed;
-          stack.add(_PrattInfixFrame<A>(lhs, combine, minBp));
-          minBp = rbp;
-          lhsValid = false;
-          continue outer;
-        case PrattOpPostfix<A>(:final bp, :final apply):
-          if (bp <= minBp) {
-            state.restore(snapshot);
-            if (stack.isNotEmpty) {
-              final popped = _applyFrame(stack.removeLast(), lhs);
-              lhs = popped.lhs;
-              minBp = popped.outerMinBp;
-              continue outer;
-            }
-            return Success<E, A>(lhs, totalConsumed);
+          return Success<Object?, Object?>(lhs, totalConsumed);
+        }
+        final bucket = table.entriesAt(input.codeUnitAt(state.offset));
+        if (bucket == null) {
+          if (stack.isNotEmpty) {
+            _popFrame();
+            continue;
           }
-          totalConsumed += opResult.consumed;
-          lhs = apply(lhs);
+          return Success<Object?, Object?>(lhs, totalConsumed);
+        }
+
+        final matchOffset = state.offset;
+        PrattOpEntry<dynamic>? matched;
+        for (final entry in bucket) {
+          if (_matchEntry(entry, input, matchOffset)) {
+            matched = entry;
+            break;
+          }
+        }
+        if (matched == null) {
+          if (stack.isNotEmpty) {
+            _popFrame();
+            continue;
+          }
+          return Success<Object?, Object?>(lhs, totalConsumed);
+        }
+
+        final op = matched.op;
+        final prefixLen = matched.prefix.length;
+        // Read combiner/transform via the erased `combineFn`/`applyFn` getters
+        // (destructuring `:final combine` would re-impose the contravariant
+        // function-type cast that a typed combiner fails).
+        switch (op) {
+          case PrattOpInfix<dynamic>(:final lbp, :final rbp):
+            if (lbp <= minBp) {
+              if (stack.isNotEmpty) {
+                _popFrame();
+                continue;
+              }
+              return Success<Object?, Object?>(lhs, totalConsumed);
+            }
+            state.advanceN(prefixLen);
+            totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
+            stack.add(_PrattInfixFrame<dynamic>(lhs, op.combineFn, minBp));
+            minBp = rbp;
+            lhsValid = false;
+            continue;
+          case PrattOpPostfix<dynamic>(:final bp):
+            if (bp <= minBp) {
+              if (stack.isNotEmpty) {
+                _popFrame();
+                continue;
+              }
+              return Success<Object?, Object?>(lhs, totalConsumed);
+            }
+            state.advanceN(prefixLen);
+            totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
+            // ignore: avoid_dynamic_calls
+            lhs = op.applyFn(lhs);
+        }
+      } else {
+        final snapshot = state.save();
+        final opResult = interpretI<dynamic, Object?>(getOp, state);
+        if (opResult is! Success<dynamic, Object?>) {
+          state.restore(snapshot);
+          if (stack.isNotEmpty) {
+            _popFrame();
+            continue;
+          }
+          return Success<Object?, Object?>(lhs, totalConsumed);
+        }
+        final op = opResult.value as PrattOp<dynamic>;
+        switch (op) {
+          case PrattOpInfix<dynamic>(:final lbp, :final rbp):
+            if (lbp <= minBp) {
+              state.restore(snapshot);
+              if (stack.isNotEmpty) {
+                _popFrame();
+                continue;
+              }
+              return Success<Object?, Object?>(lhs, totalConsumed);
+            }
+            totalConsumed += opResult.consumed;
+            stack.add(_PrattInfixFrame<dynamic>(lhs, op.combineFn, minBp));
+            minBp = rbp;
+            lhsValid = false;
+            continue;
+          case PrattOpPostfix<dynamic>(:final bp):
+            if (bp <= minBp) {
+              state.restore(snapshot);
+              if (stack.isNotEmpty) {
+                _popFrame();
+                continue;
+              }
+              return Success<Object?, Object?>(lhs, totalConsumed);
+            }
+            totalConsumed += opResult.consumed;
+            // ignore: avoid_dynamic_calls
+            lhs = op.applyFn(lhs);
+        }
       }
     }
+  }
+
+  /// Pop one operator-stack frame, combining/applying it into [lhs] and
+  /// restoring the surrounding minBp.
+  void _popFrame() {
+    final popped = _applyFrame(stack.removeLast(), lhs);
+    lhs = popped.lhs;
+    minBp = popped.outerMinBp;
   }
 }
 
@@ -1987,12 +2065,17 @@ typedef _PoppedFrame<A> = ({A lhs, int outerMinBp});
 /// Combines (infix) or applies (prefix) [frame] to [lhs] and returns the
 /// updated lhs together with the frame's outerMinBp.
 _PoppedFrame<A> _applyFrame<A>(_PrattFrame<A> frame, A lhs) => switch (frame) {
+  // Dynamic invocations: combine/apply are stored as `Function` (see
+  // [_PrattFrame]); their real covariant parameter types are checked at the
+  // call site.
   _PrattInfixFrame<A>(:final savedLhs, :final combine, :final outerMinBp) => (
-    lhs: combine(savedLhs, lhs),
+    // ignore: avoid_dynamic_calls
+    lhs: combine(savedLhs, lhs) as A,
     outerMinBp: outerMinBp,
   ),
   _PrattPrefixFrame<A>(:final apply, :final outerMinBp) => (
-    lhs: apply(lhs),
+    // ignore: avoid_dynamic_calls
+    lhs: apply(lhs) as A,
     outerMinBp: outerMinBp,
   ),
 };
