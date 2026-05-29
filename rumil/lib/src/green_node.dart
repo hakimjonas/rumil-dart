@@ -19,6 +19,28 @@
 /// resilient-tree model: the tree itself records what went wrong at the
 /// structural position it went wrong, instead of emitting a flat list of
 /// errors alongside a tree that looks as if it had parsed.
+///
+/// ## Per-language usage
+///
+/// A grammar declares its own token and syntax-node alphabets as enums and
+/// abbreviates the parameterized green/red types with top-level typedefs:
+///
+/// ```dart
+/// enum JsonTok { lbrace, rbrace, str, num, colon, comma, /* ... */ }
+/// enum JsonSyn { document, object, member, array, value }
+///
+/// typedef JsonGreen = GreenNode<JsonTok, JsonSyn>;
+/// typedef JsonRed   = RedTree<JsonTok, JsonSyn>;
+/// ```
+///
+/// These typedefs live in the grammar's own library, not in rumil core —
+/// the substrate stays unaware of any specific language. Cross-grammar
+/// safety needs no marker type: the generic parameters already make
+/// `RedTree<JsonTok, JsonSyn>` and `RedTree<YamlTok, YamlSyn>` distinct at
+/// every API boundary, and the analyzer's `unrelated_type_equality_checks`
+/// flags cross-grammar `==`. (rumil-scala bundles these aliases in a
+/// `Language` trait because Scala has no top-level type aliases; the Dart
+/// idiom is the typedef, so there is no `Language` type here.)
 library;
 
 import 'equality.dart';
