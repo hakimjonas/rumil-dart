@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'errors.dart';
 import 'green_cache.dart';
 import 'green_node.dart';
+import 'location.dart';
 import 'memo.dart';
 import 'parser.dart';
 import 'radix.dart';
@@ -79,55 +80,508 @@ final class _ContPartialConsumed extends _Cont {
   const _ContPartialConsumed(this.extraConsumed, this.next);
 }
 
-Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
+// --- Frames added for stack-safe combinator nesting ---
+// Each frame replaces a recursive `interpretI(child)` call inside a
+// sub-parse-taking combinator with a heap continuation, so nesting depth
+// lives in the (heap-allocated) continuation chain rather than the Dart call
+// stack. See `_drive`.
+
+/// Awaiting the left branch of an `Or`. On non-failure, propagate it; on
+/// failure, restore and try [right] under a [_ContOrRight].
+final class _ContOrLeft extends _Cont {
+  final Parser<dynamic, dynamic> right;
+  final int snapshot;
+  final bool simple;
+  final _Cont next;
+  const _ContOrLeft(this.right, this.snapshot, this.simple, this.next);
+}
+
+/// Awaiting the right branch of an `Or` whose left already failed. Merges the
+/// two failures if the right also fails.
+final class _ContOrRight extends _Cont {
+  final Failure<dynamic, dynamic> leftFailure;
+  final _Cont next;
+  const _ContOrRight(this.leftFailure, this.next);
+}
+
+/// Awaiting one alternative of a `Choice`. On non-failure, propagate; on
+/// failure, restore and try the next alternative (or fail with merged errors).
+final class _ContChoice extends _Cont {
+  final List<Parser<dynamic, dynamic>> alternatives;
+  final int index;
+  final int snapshot;
+  final List<Object?> Function() accMkErrors;
+  final Location furthest;
+  final _Cont next;
+  const _ContChoice(
+    this.alternatives,
+    this.index,
+    this.snapshot,
+    this.accMkErrors,
+    this.furthest,
+    this.next,
+  );
+}
+
+/// Looper for `Many`/`Many1`/`SkipMany` with a complex (sub-parsing) element.
+/// [kind]: 0 = Many, 1 = SkipMany. (Many1 reuses kind 0 once its first element
+/// has been accepted.) [acc] is null for SkipMany.
+///
+/// [rebuild] reifies the accumulator into a correctly-typed `List<A>` on
+/// finalize (null for SkipMany, whose result is `void`); see [Many.buildList].
+final class _ContMany extends _Cont {
+  final Parser<dynamic, dynamic> element;
+  final List<Object?>? acc;
+  final List<Object?> Function(List<Object?>)? rebuild;
+  final List<List<Object?> Function()> errThunks;
+  final bool simple;
+  final int totalConsumed;
+  final int iterSnapshot;
+  final int kind;
+  final _Cont next;
+  const _ContMany(
+    this.element,
+    this.acc,
+    this.rebuild,
+    this.errThunks,
+    this.simple,
+    this.totalConsumed,
+    this.iterSnapshot,
+    this.kind,
+    this.next,
+  );
+}
+
+/// Awaiting the mandatory first element of a `Many1`. On failure, propagate
+/// (a Many1 with zero matches fails); on success, begin the `Many` loop.
+final class _ContMany1First extends _Cont {
+  final Parser<dynamic, dynamic> element;
+  final List<Object?> Function(List<Object?>) rebuild;
+  final bool simple;
+  final _Cont next;
+  const _ContMany1First(this.element, this.rebuild, this.simple, this.next);
+}
+
+/// Awaiting the inner parser of an `Optional`. On failure, restore and yield
+/// `Success(null)`; otherwise pass the value through (the static type is `A?`).
+final class _ContOptional extends _Cont {
+  final int snapshot;
+  final bool simple;
+  final _Cont next;
+  const _ContOptional(this.snapshot, this.simple, this.next);
+}
+
+/// Awaiting the inner parser of a `Capture`. Replaces the value with the
+/// consumed source slice.
+final class _ContCapture extends _Cont {
+  final int startOffset;
+  final _Cont next;
+  const _ContCapture(this.startOffset, this.next);
+}
+
+/// Awaiting the inner parser of a `Named`. On failure, augments `Unexpected`
+/// errors with the rule [name].
+final class _ContNamed extends _Cont {
+  final String name;
+  final _Cont next;
+  const _ContNamed(this.name, this.next);
+}
+
+/// Awaiting the inner parser of an `Expect`. On failure, replaces the errors
+/// with a single `CustomError(message)` at the furthest position.
+final class _ContExpect extends _Cont {
+  final String message;
+  final _Cont next;
+  const _ContExpect(this.message, this.next);
+}
+
+/// Awaiting the inner parser of an `Attempt`. Reifies the inner result into a
+/// `Success<Never, Result>` and restores on failure (full backtrack).
+final class _ContAttempt extends _Cont {
+  final int snapshot;
+  final _Cont next;
+  const _ContAttempt(this.snapshot, this.next);
+}
+
+/// Awaiting the inner parser of a `LookAhead`. Always restores the offset; on
+/// success/partial yields the value with zero consumed.
+final class _ContLookAhead extends _Cont {
+  final int snapshot;
+  final _Cont next;
+  const _ContLookAhead(this.snapshot, this.next);
+}
+
+/// Awaiting the inner parser of a `NotFollowedBy`. Always restores; inverts
+/// success/failure.
+final class _ContNotFollowedBy extends _Cont {
+  final int snapshot;
+  final _Cont next;
+  const _ContNotFollowedBy(this.snapshot, this.next);
+}
+
+/// Awaiting the primary parser of a `RecoverWith`. On failure, restore and run
+/// the recovery parser under a [_ContRecoverCombine].
+final class _ContRecoverTry extends _Cont {
+  final Parser<dynamic, dynamic> recovery;
+  final int snapshot;
+  final _Cont next;
+  const _ContRecoverTry(this.recovery, this.snapshot, this.next);
+}
+
+/// Awaiting the recovery parser of a `RecoverWith`. Combines the original
+/// (eagerly-evaluated) errors with the recovery outcome.
+final class _ContRecoverCombine extends _Cont {
+  final List<Object?> originalErrors;
+  final Location originalFurthest;
+  final _Cont next;
+  const _ContRecoverCombine(
+    this.originalErrors,
+    this.originalFurthest,
+    this.next,
+  );
+}
+
+/// Awaiting the first element of a `Chainl1`/`Chainr1`. On failure, propagate;
+/// on success, begin the operator loop.
+final class _ContChainFirst extends _Cont {
+  final Parser<dynamic, dynamic> p;
+  final Parser<dynamic, dynamic> op;
+  final bool rightAssoc;
+  final _Cont next;
+  const _ContChainFirst(this.p, this.op, this.rightAssoc, this.next);
+}
+
+/// Awaiting an operator in a chain. On failure, restore and finalize; on
+/// success, parse the next element under a [_ContChainRhs].
+final class _ContChainOp extends _Cont {
+  final Parser<dynamic, dynamic> p;
+  final Parser<dynamic, dynamic> op;
+  final bool rightAssoc;
+  // chainl1: accumulated lhs. chainr1: collected values/ops for the final fold.
+  final Object? lhs;
+  final List<Object?>? values;
+  final List<Object?>? ops;
+  final int consumed;
+  final int snapshot;
+  final _Cont next;
+  const _ContChainOp(
+    this.p,
+    this.op,
+    this.rightAssoc,
+    this.lhs,
+    this.values,
+    this.ops,
+    this.consumed,
+    this.snapshot,
+    this.next,
+  );
+}
+
+/// Awaiting the right-hand element after an operator in a chain.
+final class _ContChainRhs extends _Cont {
+  final Parser<dynamic, dynamic> p;
+  final Parser<dynamic, dynamic> op;
+  final bool rightAssoc;
+  final Object? lhs;
+  final List<Object?>? values;
+  final List<Object?>? ops;
+  final Object? combine; // the operator's combiner function
+  final int consumedBeforeOp;
+  final int opConsumed;
+  final int snapshot;
+  final _Cont next;
+  const _ContChainRhs(
+    this.p,
+    this.op,
+    this.rightAssoc,
+    this.lhs,
+    this.values,
+    this.ops,
+    this.combine,
+    this.consumedBeforeOp,
+    this.opConsumed,
+    this.snapshot,
+    this.next,
+  );
+}
+
+/// Whether a parser is a `Capture(Many(Satisfy))` / `Capture(Many1(Satisfy))`
+/// shape that the char-scan fast path handles directly. Such captures must be
+/// recognized in [_leafInterpret] rather than framed as a generic `Capture`,
+/// to preserve the zero-list-allocation scan.
+bool _isScanFusableCapture(Parser<dynamic, dynamic> inner) =>
+    (inner is Many<dynamic, dynamic> && inner.parser is Satisfy) ||
+    (inner is Many1<dynamic, dynamic> && inner.parser is Satisfy);
+
+// ===========================================================================
+// Trampolined interpreter (eval/apply state machine)
+// ===========================================================================
+
+/// Interpret [parser] to a [Result], stack-safe for arbitrary combinator
+/// nesting.
+///
+/// A single eval/apply trampoline drives all combinator composition AND
+/// nesting through a heap-allocated continuation chain ([_Cont]), so a parser
+/// that re-enters itself via a sub-parse (`'(' expr ')'`, `value.sepBy(...)`,
+/// a Pratt parenthesized atom, …) does not consume Dart call frames per
+/// nesting level. The previous design only trampolined the FlatMap/Map/Zip
+/// *spine* (flat composition); every other sub-parse re-entered `interpretI`
+/// recursively, so structural nesting was bounded by the native stack
+/// (~600–2000 levels). This driver pushes a continuation frame for each
+/// sub-parse-taking combinator instead.
+///
+/// Two exceptions stay on the host stack, by design:
+/// - LR-enabled [Memo] (`rule()`, Warth seed-growth): its seed-regrowth loop
+///   re-enters the interpreter with live LR state; trampolining it is deferred.
+///   It nests by left-recursion depth, not structural depth.
+/// - [Pratt]: its own operator loop is already iterative; its atom/operand
+///   sub-parses currently re-enter via [_runSub]. (Lifting the atom onto the
+///   continuation chain is the remaining nesting-safety work for Pratt.)
+///
+/// Char-scan fast paths (`Many(Satisfy)`, `Capture(Many(Satisfy))`, etc.) and
+/// the StringMatch repetition paths are dispatched in [_leafInterpret] without
+/// per-element frames, preserving their flat-repetition throughput (the axis
+/// verified to 1B operands).
+Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
   Parser<dynamic, dynamic> currentParser = parser;
   _Cont cont = const _ContEnd();
+  // Working result is fully type-erased; E/A are recovered once at _ContEnd.
+  // This keeps the continuation frames non-generic.
+  late Result<Object?, Object?> result;
 
-  outer:
+  eval:
   while (true) {
-    while (currentParser is FlatMap<dynamic, dynamic, dynamic>) {
-      cont = _ContFlatMap(currentParser, cont);
-      currentParser = currentParser.source;
-    }
-    while (currentParser is Mapped<dynamic, dynamic, dynamic>) {
-      cont = _ContMap(currentParser, cont);
-      currentParser = currentParser.source;
-    }
-    if (currentParser is Zip<dynamic, dynamic, dynamic>) {
-      cont = _ContZipRight(currentParser.right, cont);
-      currentParser = currentParser.left;
-      continue outer;
+    // Flatten the FlatMap/Map/Zip spine first (hot path, no per-node helper
+    // call). A single combined loop, because peeling a `Mapped` can expose a
+    // `FlatMap` underneath (and vice versa) — separate one-shot loops would
+    // leave such an interleaved node unflattened, dropping it onto the
+    // `_leafInterpret` default.
+    spine:
+    while (true) {
+      if (currentParser is FlatMap<dynamic, dynamic, dynamic>) {
+        cont = _ContFlatMap(currentParser, cont);
+        currentParser = currentParser.source;
+        continue spine;
+      }
+      if (currentParser is Mapped<dynamic, dynamic, dynamic>) {
+        cont = _ContMap(currentParser, cont);
+        currentParser = currentParser.source;
+        continue spine;
+      }
+      if (currentParser is Zip<dynamic, dynamic, dynamic>) {
+        cont = _ContZipRight(currentParser.right, cont);
+        currentParser = currentParser.left;
+        continue spine;
+      }
+      break spine;
     }
 
-    var result =
-        interpretI<E, dynamic>(currentParser as Parser<E, dynamic>, state)
-            as Result<E, Object?>;
+    // Sub-parse-taking combinators: push a continuation frame and descend,
+    // rather than recursing into `interpretI`. This is what makes nesting
+    // stack-safe. Cases that don't match fall through to `_leafInterpret`.
+    final cp = currentParser;
+    switch (cp) {
+      case Defer<dynamic, dynamic>(:final thunk):
+        currentParser = thunk();
+        continue eval;
 
+      case FirstCharChoice<dynamic, dynamic>(
+        :final dispatch,
+        :final fallback,
+        :final expectedChars,
+      ):
+        if (state.hasChar) {
+          final picked = dispatch[state.input.codeUnitAt(state.offset)];
+          if (picked != null) {
+            currentParser = picked;
+            continue eval;
+          }
+        }
+        if (fallback != null) {
+          currentParser = fallback;
+          continue eval;
+        }
+        final loc = state.location;
+        if (state.hasChar) {
+          final c = state.currentChar;
+          result = Failure<Object?, Object?>(
+            () => [
+              Unexpected(c, {'one of "$expectedChars"'}, loc),
+            ],
+            loc,
+          );
+        } else {
+          result = Failure<Object?, Object?>(
+            () => [EndOfInput('one of "$expectedChars"', loc)],
+            loc,
+          );
+        }
+
+      case Or<dynamic, dynamic>(:final left, :final right):
+        // FIRST-set fast path: if `left` is statically doomed at this char,
+        // skip it and run `right` directly, merging on right-failure.
+        final synthesized = _firstFail<Object?, Object?>(
+          left as Parser<Object?, Object?>,
+          state,
+        );
+        if (synthesized != null) {
+          cont = _ContOrRight(synthesized, cont);
+          currentParser = right;
+          continue eval;
+        }
+        final simple = left.isSimple;
+        cont = _ContOrLeft(right, simple ? 0 : state.save(), simple, cont);
+        currentParser = left;
+        continue eval;
+
+      case Choice<dynamic, dynamic>(:final alternatives):
+        if (alternatives.isEmpty) {
+          result = Failure<Object?, Object?>(() => const [], state.location);
+        } else {
+          final snapshot = state.save();
+          cont = _ContChoice(
+            alternatives,
+            0,
+            snapshot,
+            () => const [],
+            state.location,
+            cont,
+          );
+          currentParser = alternatives[0];
+          continue eval;
+        }
+
+      case Many<dynamic, dynamic>(:final parser) when !_isLeafMany(parser):
+        final node = cp;
+        cont = _ContMany(
+          parser,
+          <Object?>[],
+          node.buildList,
+          [],
+          parser.isSimple,
+          0,
+          parser.isSimple ? 0 : state.save(),
+          0,
+          cont,
+        );
+        currentParser = parser;
+        continue eval;
+
+      case Many1<dynamic, dynamic>(:final parser) when !_isLeafMany(parser):
+        final node = cp;
+        cont = _ContMany1First(parser, node.buildList, parser.isSimple, cont);
+        currentParser = parser;
+        continue eval;
+
+      case SkipMany<dynamic, dynamic>(:final parser) when !_isLeafMany(parser):
+        cont = _ContMany(
+          parser,
+          null,
+          null,
+          [],
+          parser.isSimple,
+          0,
+          parser.isSimple ? 0 : state.save(),
+          1,
+          cont,
+        );
+        currentParser = parser;
+        continue eval;
+
+      case Capture<dynamic, dynamic>(:final parser)
+          when !_isScanFusableCapture(parser):
+        cont = _ContCapture(state.offset, cont);
+        currentParser = parser;
+        continue eval;
+
+      case Optional<dynamic, dynamic>(:final parser):
+        final simple = parser.isSimple;
+        cont = _ContOptional(simple ? 0 : state.save(), simple, cont);
+        currentParser = parser;
+        continue eval;
+
+      case Attempt<dynamic, dynamic>(:final parser):
+        cont = _ContAttempt(state.save(), cont);
+        currentParser = parser;
+        continue eval;
+
+      case LookAhead<dynamic, dynamic>(:final parser):
+        cont = _ContLookAhead(state.save(), cont);
+        currentParser = parser;
+        continue eval;
+
+      case NotFollowedBy(:final parser):
+        cont = _ContNotFollowedBy(state.save(), cont);
+        currentParser = parser;
+        continue eval;
+
+      case RecoverWith<dynamic, dynamic>(:final parser, :final recovery):
+        cont = _ContRecoverTry(recovery, state.save(), cont);
+        currentParser = parser;
+        continue eval;
+
+      case Expect<dynamic>(:final parser, :final message):
+        cont = _ContExpect(message, cont);
+        currentParser = parser;
+        continue eval;
+
+      case Named<dynamic>(:final parser, :final name):
+        cont = _ContNamed(name, cont);
+        currentParser = parser;
+        continue eval;
+
+      // Use the erased `elementParser`/`opParser` getters rather than
+      // destructuring `:final op`: destructuring (or an `as Chainl1<dynamic,
+      // dynamic>` cast) imposes a contravariant function-type cast that a typed
+      // combiner like `int Function(int, int)` fails. The getters upcast the
+      // value type covariantly, with no runtime cast.
+      case Chainl1<dynamic, dynamic>(:final elementParser, :final opParser):
+        cont = _ContChainFirst(elementParser, opParser, false, cont);
+        currentParser = elementParser;
+        continue eval;
+
+      case Chainr1<dynamic, dynamic>(:final elementParser, :final opParser):
+        cont = _ContChainFirst(elementParser, opParser, true, cont);
+        currentParser = elementParser;
+        continue eval;
+
+      default:
+        // Terminals, char-scan fast paths, Pratt, Memo, Trace/Debug,
+        // InternedGreen: produced directly (some recurse on the host stack —
+        // see [_leafInterpret]).
+        result = _leafInterpret(cp, state);
+    }
+
+    // APPLY: thread `result` back through the continuation chain. Frames that
+    // need another sub-parse set `currentParser`/`cont` and `continue eval`;
+    // frames that only transform a result update `result` and `continue apply`.
+    apply:
     while (true) {
       switch (cont) {
         case _ContEnd():
           return switch (result) {
-            Success<E, Object?>(:final value, :final consumed) => Success<E, A>(
-              value as A,
-              consumed,
-            ),
-            Partial<E, Object?>(
+            Success<Object?, Object?>(:final value, :final consumed) =>
+              Success<E, A>(value as A, consumed),
+            Partial<Object?, Object?>(
               :final value,
               :final errorThunk,
               :final consumed,
             ) =>
-              Partial<E, A>(value as A, errorThunk, consumed),
-            Failure<E, Object?>(:final errorThunk, :final furthest) =>
-              Failure<E, A>(errorThunk, furthest),
+              Partial<E, A>(value as A, () => errorThunk().cast<E>(), consumed),
+            Failure<Object?, Object?>(:final errorThunk, :final furthest) =>
+              Failure<E, A>(() => errorThunk().cast<E>(), furthest),
           };
 
         case _ContFlatMap(:final node, :final next):
-          if (result case Success<E, Object?>(:final value, :final consumed)) {
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
             currentParser = node.applyF(value);
             cont = consumed > 0 ? _ContPartialConsumed(consumed, next) : next;
-            continue outer;
+            continue eval;
           }
-          if (result case Partial<E, Object?>(
+          if (result case Partial<Object?, Object?>(
             :final value,
             :final errorThunk,
             :final consumed,
@@ -137,35 +591,41 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
               errorThunk,
               consumed > 0 ? _ContPartialConsumed(consumed, next) : next,
             );
-            continue outer;
+            continue eval;
           }
           cont = next;
-          continue;
+          continue apply;
 
         case _ContMap(:final node, :final next):
-          if (result case Success<E, Object?>(:final value, :final consumed)) {
-            result = Success<E, Object?>(node.applyF(value), consumed);
-          } else if (result case Partial<E, Object?>(
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            result = Success<Object?, Object?>(node.applyF(value), consumed);
+          } else if (result case Partial<Object?, Object?>(
             :final value,
             :final errorThunk,
             :final consumed,
           )) {
-            result = Partial<E, Object?>(
+            result = Partial<Object?, Object?>(
               node.applyF(value),
               errorThunk,
               consumed,
             );
           }
           cont = next;
-          continue;
+          continue apply;
 
         case _ContZipRight(:final right, :final next):
-          if (result case Success<E, Object?>(:final value, :final consumed)) {
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
             cont = _ContZipCombine(value, consumed, next);
             currentParser = right;
-            continue outer;
+            continue eval;
           }
-          if (result case Partial<E, Object?>(
+          if (result case Partial<Object?, Object?>(
             :final value,
             :final errorThunk,
             :final consumed,
@@ -175,453 +635,713 @@ Result<E, A> _runTrampoline<E, A>(Parser<E, A> parser, ParserState state) {
               _ContZipCombine(value, consumed, next),
             );
             currentParser = right;
-            continue outer;
+            continue eval;
           }
           cont = next;
-          continue;
+          continue apply;
 
         case _ContZipCombine(
           :final leftValue,
           :final leftConsumed,
           :final next,
         ):
-          if (result case Success<E, Object?>(:final value, :final consumed)) {
-            result = Success<E, Object?>((
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            result = Success<Object?, Object?>((
               leftValue,
               value,
             ), leftConsumed + consumed);
-          } else if (result case Partial<E, Object?>(
+          } else if (result case Partial<Object?, Object?>(
             :final value,
             :final errorThunk,
             :final consumed,
           )) {
-            result = Partial<E, Object?>(
+            result = Partial<Object?, Object?>(
               (leftValue, value),
               errorThunk,
               leftConsumed + consumed,
             );
           }
           cont = next;
-          continue;
+          continue apply;
 
         case _ContPartial(:final mkErrors, :final next):
-          List<E> typedMkErrors() => mkErrors().cast<E>();
-          if (result case Success<E, Object?>(:final value, :final consumed)) {
-            result = Partial<E, Object?>(value, typedMkErrors, consumed);
-          } else if (result case Partial<E, Object?>(
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            result = Partial<Object?, Object?>(value, mkErrors, consumed);
+          } else if (result case Partial<Object?, Object?>(
             :final value,
             :final errorThunk,
             :final consumed,
           )) {
-            result = Partial<E, Object?>(
+            result = Partial<Object?, Object?>(
               value,
-              () => [...typedMkErrors(), ...errorThunk()],
+              () => [...mkErrors(), ...errorThunk()],
               consumed,
             );
-          } else if (result case Failure<E, Object?>(
+          } else if (result case Failure<Object?, Object?>(
             :final errorThunk,
             :final furthest,
           )) {
-            result = Failure<E, Object?>(
-              () => [...typedMkErrors(), ...errorThunk()],
+            result = Failure<Object?, Object?>(
+              () => [...mkErrors(), ...errorThunk()],
               furthest,
             );
           }
           cont = next;
-          continue;
+          continue apply;
 
         case _ContPartialConsumed(:final extraConsumed, :final next):
-          if (result case Success<E, Object?>(:final value, :final consumed)) {
-            result = Success<E, Object?>(value, extraConsumed + consumed);
-          } else if (result case Partial<E, Object?>(
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            result = Success<Object?, Object?>(value, extraConsumed + consumed);
+          } else if (result case Partial<Object?, Object?>(
             :final value,
             :final errorThunk,
             :final consumed,
           )) {
-            result = Partial<E, Object?>(
+            result = Partial<Object?, Object?>(
               value,
               errorThunk,
               extraConsumed + consumed,
             );
           }
           cont = next;
-          continue;
-      }
-    }
-  }
-}
+          continue apply;
 
-// ===========================================================================
-// Recursive interpreter
-// ===========================================================================
+        case _ContOrLeft(
+          :final right,
+          :final snapshot,
+          :final simple,
+          :final next,
+        ):
+          if (result is! Failure<Object?, Object?>) {
+            cont = next;
+            continue apply;
+          }
+          if (!simple) state.restore(snapshot);
+          cont = _ContOrRight(result, next);
+          currentParser = right;
+          continue eval;
 
-/// Dispatches over all 26 Parser cases.
-Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
-  var p = parser;
+        case _ContOrRight(:final leftFailure, :final next):
+          if (result is Failure<Object?, Object?>) {
+            result = _mergeFailures<Object?, Object?>(leftFailure, result);
+          }
+          cont = next;
+          continue apply;
 
-  while (true) {
-    switch (p) {
-      case Succeed<E, A>(:final value):
-        return Success<E, A>(value, 0);
-
-      case Fail<E, A>(:final error):
-        final loc = state.location;
-        return Failure<E, A>(() => [error], loc);
-
-      case Satisfy(:final pred, :final expected):
-        if (state.hasChar) {
-          final c = state.currentChar;
-          if (pred(c)) {
-            state.advance();
-            return Success<E, A>(c as A, 1);
+        case _ContChoice(
+          :final alternatives,
+          :final index,
+          :final snapshot,
+          :final accMkErrors,
+          :final furthest,
+          :final next,
+        ):
+          if (result is! Failure<Object?, Object?>) {
+            cont = next;
+            continue apply;
+          }
+          state.restore(snapshot);
+          final failure = result;
+          List<Object?> Function() nextAcc;
+          Location nextFurthest;
+          if (failure.furthest.offset > furthest.offset) {
+            nextAcc = failure.errorThunk;
+            nextFurthest = failure.furthest;
+          } else if (failure.furthest.offset == furthest.offset) {
+            final prev = accMkErrors;
+            final curr = failure.errorThunk;
+            nextAcc = () => [...prev(), ...curr()];
+            nextFurthest = furthest;
           } else {
-            final loc = state.location;
-            return Failure<E, A>(
-              () => [
-                Unexpected(c, {expected}, loc) as E,
-              ],
-              loc,
+            nextAcc = accMkErrors;
+            nextFurthest = furthest;
+          }
+          if (index + 1 < alternatives.length) {
+            cont = _ContChoice(
+              alternatives,
+              index + 1,
+              snapshot,
+              nextAcc,
+              nextFurthest,
+              next,
+            );
+            currentParser = alternatives[index + 1];
+            continue eval;
+          }
+          result = Failure<Object?, Object?>(nextAcc, nextFurthest);
+          cont = next;
+          continue apply;
+
+        case _ContMany(
+          :final element,
+          :final acc,
+          :final rebuild,
+          :final errThunks,
+          :final simple,
+          :final totalConsumed,
+          :final iterSnapshot,
+          :final kind,
+          :final next,
+        ):
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            if (acc != null) acc.add(value);
+            cont = _ContMany(
+              element,
+              acc,
+              rebuild,
+              errThunks,
+              simple,
+              totalConsumed + consumed,
+              simple ? 0 : state.save(),
+              kind,
+              next,
+            );
+            currentParser = element;
+            continue eval;
+          }
+          if (result case Partial<Object?, Object?>(
+            :final value,
+            :final errorThunk,
+            :final consumed,
+          )) {
+            if (acc != null) acc.add(value);
+            errThunks.add(errorThunk);
+            cont = _ContMany(
+              element,
+              acc,
+              rebuild,
+              errThunks,
+              simple,
+              totalConsumed + consumed,
+              simple ? 0 : state.save(),
+              kind,
+              next,
+            );
+            currentParser = element;
+            continue eval;
+          }
+          // Failure: end of repetition. Reify the accumulator to its real
+          // element type (null for SkipMany, whose value is `void`).
+          if (!simple) state.restore(iterSnapshot);
+          final value = (acc == null || rebuild == null) ? null : rebuild(acc);
+          if (errThunks.isEmpty) {
+            result = Success<Object?, Object?>(value, totalConsumed);
+          } else {
+            final thunks = errThunks;
+            result = Partial<Object?, Object?>(
+              value,
+              () => thunks.expand((t) => t()).toList(),
+              totalConsumed,
             );
           }
-        } else {
-          final loc = state.location;
-          return Failure<E, A>(() => [EndOfInput(expected, loc) as E], loc);
-        }
+          cont = next;
+          continue apply;
 
-      case StringMatch(:final target):
-        final len = target.length;
-        if (state.offset + len > state.input.length) {
-          final loc = state.location;
-          return Failure<E, A>(() => [EndOfInput('"$target"', loc) as E], loc);
-        }
-        if (_regionMatches(state.input, state.offset, target)) {
-          state.advanceByString(target);
-          return Success<E, A>(target as A, len);
-        }
-        final loc = state.location;
-        final endOff = math.min(state.offset + len, state.input.length);
-        final found = state.input.substring(state.offset, endOff);
-        return Failure<E, A>(
-          () => [
-            Unexpected(found, {'"$target"'}, loc) as E,
-          ],
-          loc,
-        );
+        case _ContMany1First(
+          :final element,
+          :final rebuild,
+          :final simple,
+          :final next,
+        ):
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            cont = _ContMany(
+              element,
+              <Object?>[value],
+              rebuild,
+              [],
+              simple,
+              consumed,
+              simple ? 0 : state.save(),
+              0,
+              next,
+            );
+            currentParser = element;
+            continue eval;
+          }
+          if (result case Partial<Object?, Object?>(
+            :final value,
+            :final errorThunk,
+            :final consumed,
+          )) {
+            cont = _ContMany(
+              element,
+              <Object?>[value],
+              rebuild,
+              [errorThunk],
+              simple,
+              consumed,
+              simple ? 0 : state.save(),
+              0,
+              next,
+            );
+            currentParser = element;
+            continue eval;
+          }
+          // Failure on the mandatory first element: propagate.
+          cont = next;
+          continue apply;
 
-      case StringChoice(:final radix, :final targets):
-        return _interpretStringChoice<E, A>(radix, targets, state);
+        case _ContOptional(:final snapshot, :final simple, :final next):
+          if (result is Failure<Object?, Object?>) {
+            if (!simple) state.restore(snapshot);
+            result = const Success<Object?, Object?>(null, 0);
+          }
+          cont = next;
+          continue apply;
 
-      case Eof():
-        if (state.atEnd) return Success<E, A>(null as A, 0);
-        final loc = state.location;
-        return Failure<E, A>(
-          () => [CustomError('Expected end of input', loc) as E],
-          loc,
-        );
+        case _ContCapture(:final startOffset, :final next):
+          if (result case Success<Object?, Object?>(:final consumed)) {
+            result = Success<Object?, Object?>(
+              state.slice(startOffset, startOffset + consumed),
+              consumed,
+            );
+          } else if (result case Partial<Object?, Object?>(
+            :final errorThunk,
+            :final consumed,
+          )) {
+            result = Partial<Object?, Object?>(
+              state.slice(startOffset, startOffset + consumed),
+              errorThunk,
+              consumed,
+            );
+          }
+          cont = next;
+          continue apply;
 
-      case GetPosition():
-        return Success<E, A>(state.offset as A, 0);
+        case _ContNamed(:final name, :final next):
+          if (result case Failure<Object?, Object?>(
+            :final errorThunk,
+            :final furthest,
+          )) {
+            result = Failure<Object?, Object?>(
+              () =>
+                  errorThunk().map((e) {
+                    if (e is Unexpected) {
+                      return Unexpected(e.found, {
+                        ...e.expected,
+                        name,
+                      }, e.location);
+                    }
+                    return e;
+                  }).toList(),
+              furthest,
+            );
+          }
+          cont = next;
+          continue apply;
 
-      case Mapped<E, dynamic, A>():
-        return _runTrampoline<E, A>(p, state);
+        case _ContExpect(:final message, :final next):
+          if (result case Failure<Object?, Object?>(:final furthest)) {
+            result = Failure<Object?, Object?>(
+              () => [CustomError(message, furthest)],
+              furthest,
+            );
+          }
+          cont = next;
+          continue apply;
 
-      case FlatMap<E, dynamic, A>():
-        return _runTrampoline<E, A>(p, state);
-
-      case Zip<E, dynamic, dynamic>():
-        return _runTrampoline<E, A>(p, state);
-
-      case Or<E, A>(:final left, :final right):
-        final synthesized = _firstFail<E, A>(left, state);
-        if (synthesized != null) {
-          final r2 = interpretI<E, A>(right, state);
-          if (r2 is! Failure<E, A>) return r2;
-          return _mergeFailures<E, A>(synthesized, r2);
-        }
-        final simple = left.isSimple;
-        final snapshot = simple ? 0 : state.save();
-        final r1 = interpretI<E, A>(left, state);
-        if (r1 is! Failure<E, A>) return r1;
-        if (!simple) state.restore(snapshot);
-        final r2 = interpretI<E, A>(right, state);
-        if (r2 is! Failure<E, A>) return r2;
-        return _mergeFailures<E, A>(r1, r2);
-
-      case Choice<E, A>(:final alternatives):
-        return _interpretChoice<E, A>(alternatives, state);
-
-      case FirstCharChoice<E, A>(
-        :final dispatch,
-        :final fallback,
-        :final expectedChars,
-      ):
-        if (state.hasChar) {
-          final cu = state.input.codeUnitAt(state.offset);
-          final picked = dispatch[cu];
-          if (picked != null) return interpretI<E, A>(picked, state);
-        }
-        if (fallback != null) return interpretI<E, A>(fallback, state);
-        final loc = state.location;
-        if (state.hasChar) {
-          final c = state.currentChar;
-          return Failure<E, A>(
-            () => [
-              Unexpected(c, {'one of "$expectedChars"'}, loc) as E,
-            ],
-            loc,
-          );
-        }
-        return Failure<E, A>(
-          () => [EndOfInput('one of "$expectedChars"', loc) as E],
-          loc,
-        );
-
-      case Capture<E, dynamic>(
-        parser: Many<E, dynamic>(parser: final Satisfy s),
-      ):
-        return _scanMany<E, A>(s.pred, s.expected, state, required: false);
-
-      case Capture<E, dynamic>(
-        parser: Many1<E, dynamic>(parser: final Satisfy s),
-      ):
-        return _scanMany<E, A>(s.pred, s.expected, state, required: true);
-
-      case Many<E, dynamic>(parser: final Satisfy s):
-        return _collectMany<E, A>(s.pred, state);
-
-      case Many1<E, dynamic>(parser: final Satisfy s):
-        return _collectMany1<E, A>(s.pred, s.expected, state);
-
-      case Many<E, dynamic>(parser: final StringMatch sm):
-        return _collectManyString<E, A>(sm.target, state);
-
-      case Many1<E, dynamic>(parser: final StringMatch sm):
-        return _collectMany1String<E, A>(sm.target, state);
-
-      case SkipMany<E, dynamic>(parser: final Satisfy s):
-        return _skipManySatisfy<E>(s.pred, state) as Result<E, A>;
-
-      case SkipMany<E, dynamic>(parser: final StringMatch sm):
-        return _skipManyString<E>(sm.target, state) as Result<E, A>;
-
-      // Defer stays in hot: `p = thunk(); continue` rebinds the loop
-      // variable, which only works inside this function's switch.
-      case Defer<E, A>(:final thunk):
-        p = thunk();
-        continue;
-
-      // ===== Cold path: rare cases dispatched via separate function =====
-      // Splitting the cold cases out keeps `interpretI`'s body small
-      // enough that the AOT/WASM optimizer can specialize the hot
-      // dispatch tightly. Pattern lifted from Eru's runFast/stepCold
-      // architecture; Dart equivalent skips Eru's exception-bail
-      // (expensive on Dart) in favor of a plain function call.
-      default:
-        return _interpretCold<E, A>(p, state);
-    }
-  }
-}
-
-/// Cold-path interpreter for the rarely-hit Parser cases.
-///
-/// Called from `interpretI`'s default branch. Handles: Optional,
-/// Attempt, LookAhead, NotFollowedBy, RecoverWith, Expect, Named,
-/// Trace, Debug, Memo, Pratt, Chainl1, Chainr1, the generic
-/// Many/Many1/SkipMany fall-throughs, and the generic Capture
-/// fall-through. The hot cases live inline in `interpretI`.
-Result<E, A> _interpretCold<E, A>(Parser<E, A> p, ParserState state) {
-  switch (p) {
-    case final Many<E, dynamic> m:
-      return m.interpretWith(
-            <T>(Parser<E, T> inner) => _interpretMany<E, T>(inner, state),
-          )
-          as Result<E, A>;
-
-    case final Many1<E, dynamic> m1:
-      return m1.interpretWith(
-            <T>(Parser<E, T> inner) => _interpretMany1<E, T>(inner, state),
-          )
-          as Result<E, A>;
-
-    case final SkipMany<E, dynamic> sm:
-      return sm.interpretWith(
-            <T>(Parser<E, T> inner) => _interpretSkipMany<E, T>(inner, state),
-          )
-          as Result<E, A>;
-
-    case Capture<E, dynamic>(parser: Many<E, dynamic>(:final parser)):
-      return _interpretCaptureMany<E, dynamic>(parser, state, required: false)
-          as Result<E, A>;
-
-    case Capture<E, dynamic>(parser: Many1<E, dynamic>(:final parser)):
-      return _interpretCaptureMany<E, dynamic>(parser, state, required: true)
-          as Result<E, A>;
-
-    case final Chainl1<E, A> ch:
-      return ch.interpretWith(
-        <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
-            _interpretChainl1<E, T>(elt, op, state),
-      );
-
-    case final Chainr1<E, A> ch:
-      return ch.interpretWith(
-        <T>(Parser<E, T> elt, Parser<E, T Function(T, T)> op) =>
-            _interpretChainr1<E, T>(elt, op, state),
-      );
-
-    case final Capture<E, dynamic> cap:
-      return cap.interpretWith((inner) {
-            final startOff = state.offset;
-            final r = interpretI(inner, state);
-            return switch (r) {
-              Success(:final consumed) => Success<E, String>(
-                state.slice(startOff, startOff + consumed),
-                consumed,
-              ),
-              Partial(:final consumed, :final errorThunk) => Partial<E, String>(
-                state.slice(startOff, startOff + consumed),
-                errorThunk,
-                consumed,
-              ),
-              Failure(:final errorThunk, :final furthest) => Failure<E, String>(
-                errorThunk,
-                furthest,
-              ),
-            };
-          })
-          as Result<E, A>;
-
-    case final Optional<E, dynamic> opt:
-      return opt.interpretWith(<T>(Parser<E, T> inner) {
-            final simple = inner.isSimple;
-            final snapshot = simple ? 0 : state.save();
-            final r = interpretI<E, T>(inner, state);
-            if (r case Success<E, T>(:final value, :final consumed)) {
-              return Success<E, T?>(value, consumed);
-            }
-            if (r case Partial<E, T>(
+        case _ContAttempt(:final snapshot, :final next):
+          switch (result) {
+            case Success<Object?, Object?>(:final value, :final consumed):
+              result = Success<Object?, Object?>(
+                Success<Object?, Object?>(value, consumed),
+                0,
+              );
+            case Partial<Object?, Object?>(
               :final value,
               :final errorThunk,
               :final consumed,
-            )) {
-              return Partial<E, T?>(value, errorThunk, consumed);
+            ):
+              result = Success<Object?, Object?>(
+                Partial<Object?, Object?>.eager(value, errorThunk(), consumed),
+                0,
+              );
+            case Failure<Object?, Object?>(:final errorThunk, :final furthest):
+              state.restore(snapshot);
+              result = Success<Object?, Object?>(
+                Failure<Object?, Object?>.eager(errorThunk(), furthest),
+                0,
+              );
+          }
+          cont = next;
+          continue apply;
+
+        case _ContLookAhead(:final snapshot, :final next):
+          state.restore(snapshot);
+          if (result case Success<Object?, Object?>(:final value)) {
+            result = Success<Object?, Object?>(value, 0);
+          } else if (result case Partial<Object?, Object?>(
+            :final value,
+            :final errorThunk,
+          )) {
+            result = Partial<Object?, Object?>(value, errorThunk, 0);
+          }
+          cont = next;
+          continue apply;
+
+        case _ContNotFollowedBy(:final snapshot, :final next):
+          state.restore(snapshot);
+          if (result is! Failure<Object?, Object?>) {
+            final loc = state.location;
+            result = Failure<Object?, Object?>(
+              () => [CustomError('Unexpected success', loc)],
+              loc,
+            );
+          } else {
+            result = const Success<Object?, Object?>(null, 0);
+          }
+          cont = next;
+          continue apply;
+
+        case _ContRecoverTry(:final recovery, :final snapshot, :final next):
+          if (result is! Failure<Object?, Object?>) {
+            cont = next;
+            continue apply;
+          }
+          state.restore(snapshot);
+          final failure = result;
+          // Eagerly evaluate the original errors before recovery mutates state.
+          final originalErrors = failure.errorThunk();
+          cont = _ContRecoverCombine(originalErrors, failure.furthest, next);
+          currentParser = recovery;
+          continue eval;
+
+        case _ContRecoverCombine(
+          :final originalErrors,
+          :final originalFurthest,
+          :final next,
+        ):
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            result = Partial<Object?, Object?>.eager(
+              value,
+              originalErrors,
+              consumed,
+            );
+          } else if (result case Partial<Object?, Object?>(
+            :final value,
+            :final errorThunk,
+            :final consumed,
+          )) {
+            result = Partial<Object?, Object?>(
+              value,
+              () => [...originalErrors, ...errorThunk()],
+              consumed,
+            );
+          } else if (result case Failure<Object?, Object?>(
+            :final errorThunk,
+            :final furthest,
+          )) {
+            result = Failure<Object?, Object?>(
+              () => [...originalErrors, ...errorThunk()],
+              originalFurthest.offset > furthest.offset
+                  ? originalFurthest
+                  : furthest,
+            );
+          }
+          cont = next;
+          continue apply;
+
+        case _ContChainFirst(
+          :final p,
+          :final op,
+          :final rightAssoc,
+          :final next,
+        ):
+          // chainl1/chainr1 require a Success first element; anything else
+          // short-circuits (matching the recursive implementations).
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            cont = _ContChainOp(
+              p,
+              op,
+              rightAssoc,
+              rightAssoc ? null : value,
+              rightAssoc ? <Object?>[value] : null,
+              rightAssoc ? <Object?>[] : null,
+              consumed,
+              state.save(),
+              next,
+            );
+            currentParser = op;
+            continue eval;
+          }
+          cont = next;
+          continue apply;
+
+        case _ContChainOp(
+          :final p,
+          :final op,
+          :final rightAssoc,
+          :final lhs,
+          :final values,
+          :final ops,
+          :final consumed,
+          :final snapshot,
+          :final next,
+        ):
+          if (result case Success<Object?, Object?>(
+            value: final combine,
+            consumed: final opConsumed,
+          )) {
+            cont = _ContChainRhs(
+              p,
+              op,
+              rightAssoc,
+              lhs,
+              values,
+              ops,
+              combine,
+              consumed,
+              opConsumed,
+              snapshot,
+              next,
+            );
+            currentParser = p;
+            continue eval;
+          }
+          // No more operators: finalize.
+          state.restore(snapshot);
+          result = _finalizeChain(rightAssoc, lhs, values, ops, consumed);
+          cont = next;
+          continue apply;
+
+        case _ContChainRhs(
+          :final p,
+          :final op,
+          :final rightAssoc,
+          :final lhs,
+          :final values,
+          :final ops,
+          :final combine,
+          :final consumedBeforeOp,
+          :final opConsumed,
+          :final snapshot,
+          :final next,
+        ):
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            final newConsumed = consumedBeforeOp + opConsumed + consumed;
+            // `combine` is the operator's combiner, statically `Function`.
+            // Invoke it via a dynamic call so its real (covariant) parameter
+            // types are checked at runtime — a static cast to
+            // `Object? Function(Object?, Object?)` would fail on a typed
+            // combiner like `int Function(int, int)` (parameter contravariance).
+            final dynamic fn = combine;
+            if (rightAssoc) {
+              values!.add(value);
+              ops!.add(fn);
+              cont = _ContChainOp(
+                p,
+                op,
+                true,
+                null,
+                values,
+                ops,
+                newConsumed,
+                state.save(),
+                next,
+              );
+            } else {
+              cont = _ContChainOp(
+                p,
+                op,
+                false,
+                // ignore: avoid_dynamic_calls
+                fn(lhs, value),
+                null,
+                null,
+                newConsumed,
+                state.save(),
+                next,
+              );
             }
-            if (!simple) state.restore(snapshot);
-            return Success<E, T?>(null, 0);
-          })
-          as Result<E, A>;
+            currentParser = op;
+            continue eval;
+          }
+          // rhs failed: finalize with what we have (consumed before the op).
+          state.restore(snapshot);
+          result = _finalizeChain(
+            rightAssoc,
+            lhs,
+            values,
+            ops,
+            consumedBeforeOp,
+          );
+          cont = next;
+          continue apply;
+      }
+    }
+  }
+}
 
-    case final Attempt<dynamic, dynamic> att:
-      return att.interpretWith((inner) {
-            final snapshot = state.save();
-            final r = interpretI(inner, state);
-            return switch (r) {
-              Success(:final value, :final consumed) =>
-                Success<Never, Result<dynamic, dynamic>>(
-                  Success(value, consumed),
-                  0,
-                ),
-              Partial(:final value, :final errorThunk, :final consumed) =>
-                Success<Never, Result<dynamic, dynamic>>(
-                  Partial.eager(value, errorThunk(), consumed),
-                  0,
-                ),
-              Failure(:final errorThunk, :final furthest) => () {
-                state.restore(snapshot);
-                return Success<Never, Result<dynamic, dynamic>>(
-                  Failure.eager(errorThunk(), furthest),
-                  0,
-                );
-              }(),
-            };
-          })
-          as Result<E, A>;
+/// Finalize a chain accumulation into a [Success]. For chainl1 the [lhs] is
+/// already the left-folded value; for chainr1 the collected [values]/[ops] are
+/// right-folded here.
+Result<Object?, Object?> _finalizeChain(
+  bool rightAssoc,
+  Object? lhs,
+  List<Object?>? values,
+  List<Object?>? ops,
+  int consumed,
+) {
+  if (!rightAssoc) return Success<Object?, Object?>(lhs, consumed);
+  final vals = values!;
+  final opsL = ops!;
+  var acc = vals.last;
+  for (var i = vals.length - 2; i >= 0; i--) {
+    // Dynamic call: combiners are stored as `Function` with their real
+    // (covariant) parameter types; a static cast would fail. See _ContChainRhs.
+    final dynamic fn = opsL[i];
+    // ignore: avoid_dynamic_calls
+    acc = fn(vals[i], acc);
+  }
+  return Success<Object?, Object?>(acc, consumed);
+}
 
-    case LookAhead<E, A>(:final parser):
-      final snapshot = state.save();
-      final r = interpretI<E, A>(parser, state);
-      state.restore(snapshot);
-      return switch (r) {
-        Success(:final value) => Success<E, A>(value, 0),
-        Partial(:final value, :final errorThunk) => Partial<E, A>(
-          value,
-          errorThunk,
-          0,
-        ),
-        Failure() => r,
-      };
+/// Whether a `Many`/`Many1`/`SkipMany` element is a terminal handled by the
+/// allocation-free char-scan fast paths in [_leafInterpret]. Such elements
+/// cannot recurse, so they need no continuation frame.
+bool _isLeafMany(Parser<dynamic, dynamic> element) =>
+    element is Satisfy || element is StringMatch;
 
-    case NotFollowedBy(:final parser):
-      final snapshot = state.save();
-      final r = interpretI(parser, state);
-      state.restore(snapshot);
-      if (r is! Failure) {
+/// Interpret the cases that are not driven by continuation frames: terminals,
+/// the allocation-free char-scan fast paths, and the cases that (for now) stay
+/// host-recursive — Pratt, LR/simple Memo, Trace/Debug, and InternedGreen.
+///
+/// The host-recursive cases re-enter [interpretI] (a fresh trampoline) for
+/// their sub-parses. None of them is nested recursively by current grammars,
+/// so this does not reintroduce the structural-nesting overflow for any real
+/// parser; lifting Pratt's atom and InternedGreen onto the continuation chain
+/// is follow-up work.
+Result<Object?, Object?> _leafInterpret(
+  Parser<dynamic, dynamic> p,
+  ParserState state,
+) {
+  switch (p) {
+    case Succeed<dynamic, dynamic>(:final value):
+      return Success<Object?, Object?>(value, 0);
+
+    case Fail<dynamic, dynamic>(:final error):
+      final loc = state.location;
+      return Failure<Object?, Object?>(() => [error], loc);
+
+    case Satisfy(:final pred, :final expected):
+      if (state.hasChar) {
+        final c = state.currentChar;
+        if (pred(c)) {
+          state.advance();
+          return Success<Object?, Object?>(c, 1);
+        }
         final loc = state.location;
-        return Failure<E, A>(
-          () => [CustomError('Unexpected success', loc) as E],
+        return Failure<Object?, Object?>(
+          () => [
+            Unexpected(c, {expected}, loc),
+          ],
           loc,
         );
       }
-      return Success<E, A>(null as A, 0);
+      final loc = state.location;
+      return Failure<Object?, Object?>(() => [EndOfInput(expected, loc)], loc);
 
-    case RecoverWith<E, A>(:final parser, :final recovery):
-      final snapshot = state.save();
-      final r = interpretI<E, A>(parser, state);
-      if (r is! Failure<E, A>) return r;
-      state.restore(snapshot);
-      // Eagerly evaluate the original failure's errors now, before further
-      // parsing mutates state. Lazy thunks may close over ParserState and
-      // read stale offsets if evaluated later (see _satisfyMany).
-      final originalErrors = r.errorThunk();
-      final r2 = interpretI<E, A>(recovery, state);
-      return switch (r2) {
-        Success<E, A>(:final value, :final consumed) => Partial<E, A>.eager(
-          value,
-          originalErrors,
-          consumed,
-        ),
-        Partial<E, A>(:final value, :final errorThunk, :final consumed) =>
-          Partial<E, A>(
-            value,
-            () => [...originalErrors, ...errorThunk()],
-            consumed,
-          ),
-        Failure<E, A>(:final errorThunk, :final furthest) => Failure<E, A>(
-          () => [...originalErrors, ...errorThunk()],
-          r.furthest.offset > furthest.offset ? r.furthest : furthest,
-        ),
-      };
-
-    case Expect<A>(:final parser, :final message):
-      final r = interpretI<ParseError, A>(parser, state);
-      if (r is Failure<ParseError, A>) {
-        return Failure<E, A>(
-          () => [CustomError(message, r.furthest) as E],
-          r.furthest,
+    case StringMatch(:final target):
+      final len = target.length;
+      if (state.offset + len > state.input.length) {
+        final loc = state.location;
+        return Failure<Object?, Object?>(
+          () => [EndOfInput('"$target"', loc)],
+          loc,
         );
       }
-      return r as Result<E, A>;
-
-    case Named<A>(:final parser, :final name):
-      final r = interpretI<ParseError, A>(parser, state);
-      if (r is Failure<ParseError, A>) {
-        return Failure<E, A>(
-          () =>
-              r.errorThunk().map((ParseError e) {
-                if (e is Unexpected) {
-                  return Unexpected(e.found, {...e.expected, name}, e.location)
-                      as E;
-                }
-                return e as E;
-              }).toList(),
-          r.furthest,
-        );
+      if (_regionMatches(state.input, state.offset, target)) {
+        state.advanceByString(target);
+        return Success<Object?, Object?>(target, len);
       }
-      return r as Result<E, A>;
+      final loc = state.location;
+      final endOff = math.min(state.offset + len, state.input.length);
+      final found = state.input.substring(state.offset, endOff);
+      return Failure<Object?, Object?>(
+        () => [
+          Unexpected(found, {'"$target"'}, loc),
+        ],
+        loc,
+      );
 
-    case Trace<E, A>(:final parser, :final label):
-      print('[TRACE] $label: trying at offset ${state.offset}');
-      final r = interpretI<E, A>(parser, state);
+    case StringChoice(:final radix, :final targets):
+      return _interpretStringChoice<Object?, Object?>(radix, targets, state);
+
+    case Eof():
+      if (state.atEnd) return const Success<Object?, Object?>(null, 0);
+      final loc = state.location;
+      return Failure<Object?, Object?>(
+        () => [CustomError('Expected end of input', loc)],
+        loc,
+      );
+
+    case GetPosition():
+      return Success<Object?, Object?>(state.offset, 0);
+
+    case Capture<dynamic, dynamic>(
+      parser: Many<dynamic, dynamic>(parser: final Satisfy s),
+    ):
+      return _scanMany<Object?, Object?>(
+        s.pred,
+        s.expected,
+        state,
+        required: false,
+      );
+
+    case Capture<dynamic, dynamic>(
+      parser: Many1<dynamic, dynamic>(parser: final Satisfy s),
+    ):
+      return _scanMany<Object?, Object?>(
+        s.pred,
+        s.expected,
+        state,
+        required: true,
+      );
+
+    case Many<dynamic, dynamic>(parser: final Satisfy s):
+      return _collectMany<Object?, Object?>(s.pred, state);
+
+    case Many1<dynamic, dynamic>(parser: final Satisfy s):
+      return _collectMany1<Object?, Object?>(s.pred, s.expected, state);
+
+    case Many<dynamic, dynamic>(parser: final StringMatch sm):
+      return _collectManyString<Object?, Object?>(sm.target, state);
+
+    case Many1<dynamic, dynamic>(parser: final StringMatch sm):
+      return _collectMany1String<Object?, Object?>(sm.target, state);
+
+    case SkipMany<dynamic, dynamic>(parser: final Satisfy s):
+      return _skipManySatisfy<Object?>(s.pred, state);
+
+    case SkipMany<dynamic, dynamic>(parser: final StringMatch sm):
+      return _skipManyString<Object?>(sm.target, state);
+
+    case Trace<dynamic, dynamic>(:final parser, :final label):
+      final r = interpretI<Object?, Object?>(parser, state);
       switch (r) {
         case Success(:final consumed):
           print('[TRACE] $label: success, consumed $consumed chars');
@@ -632,9 +1352,9 @@ Result<E, A> _interpretCold<E, A>(Parser<E, A> p, ParserState state) {
       }
       return r;
 
-    case Debug<E, A>(:final parser, :final label):
+    case Debug<dynamic, dynamic>(:final parser, :final label):
       print('[DEBUG] $label: trying at offset ${state.offset}');
-      final r = interpretI<E, A>(parser, state);
+      final r = interpretI<Object?, Object?>(parser, state);
       switch (r) {
         case Success(:final value):
           print('[DEBUG] $label: success, parsed $value');
@@ -647,29 +1367,34 @@ Result<E, A> _interpretCold<E, A>(Parser<E, A> p, ParserState state) {
       }
       return r;
 
-    case Memo<E, A>(:final inner, :final key, :final enableLR):
-      if (enableLR) return _interpretMemo<E, A>(inner, key, state);
-      return _interpretSimpleMemo<E, A>(inner, key, state);
+    case Memo<dynamic, dynamic>(:final inner, :final key, :final enableLR):
+      if (enableLR) return _interpretMemo<Object?, Object?>(inner, key, state);
+      return _interpretSimpleMemo<Object?, Object?>(inner, key, state);
 
-    case final Pratt<E, dynamic> pr:
-      return pr.interpretWith(
-            <T>(atom, prefixes, getOp, minBp, opTable) => _interpretPratt<E, T>(
-              atom,
-              prefixes,
-              getOp,
-              minBp,
-              opTable,
-              state,
-            ),
+    // Pratt is always ParseError-typed (its operators carry ParseError); cast
+    // to the concrete E so `interpretWith`'s generic callback unifies with
+    // `_interpretPratt<ParseError, T>`. A `dynamic` E would make the callback's
+    // generic function type non-assignable.
+    case final Pratt<dynamic, dynamic> pr:
+      return (pr as Pratt<ParseError, dynamic>).interpretWith(
+            <T>(atom, prefixes, getOp, minBp, opTable) =>
+                _interpretPratt<ParseError, T>(
+                  atom,
+                  prefixes,
+                  getOp,
+                  minBp,
+                  opTable,
+                  state,
+                ),
           )
-          as Result<E, A>;
+          as Result<Object?, Object?>;
 
-    case final InternedGreen<E, dynamic, dynamic> ig:
-      return ig.interpretWith(
-            <T0, S0>(InternedGreen<E, T0, S0> typed) =>
-                _interpretInternedGreen<E, T0, S0>(typed, state),
+    case final InternedGreen<dynamic, dynamic, dynamic> ig:
+      return (ig as InternedGreen<ParseError, dynamic, dynamic>).interpretWith(
+            <T0, S0>(InternedGreen<ParseError, T0, S0> typed) =>
+                _interpretInternedGreen<ParseError, T0, S0>(typed, state),
           )
-          as Result<E, A>;
+          as Result<Object?, Object?>;
 
     default:
       throw StateError('Unreachable: unhandled ${p.runtimeType}');
@@ -880,130 +1605,6 @@ Result<E, A> _interpretSimpleMemo<E, A>(
 // Specialized helpers
 // ===========================================================================
 
-Result<E, List<A>> _interpretMany<E, A>(Parser<E, A> p, ParserState state) {
-  final acc = <A>[];
-  final errThunks = <List<E> Function()>[];
-  var totalConsumed = 0;
-  final simple = p.isSimple;
-
-  while (true) {
-    final snapshot = simple ? null : state.save();
-    final result = interpretI<E, A>(p, state);
-    switch (result) {
-      case Success<E, A>(:final value, :final consumed):
-        acc.add(value);
-        totalConsumed += consumed;
-      case Partial<E, A>(:final value, :final errorThunk, :final consumed):
-        acc.add(value);
-        errThunks.add(errorThunk);
-        totalConsumed += consumed;
-      case Failure<E, A>():
-        if (snapshot != null) state.restore(snapshot);
-        if (errThunks.isEmpty) return Success<E, List<A>>(acc, totalConsumed);
-        return Partial<E, List<A>>(
-          acc,
-          () => errThunks.expand((t) => t()).toList(),
-          totalConsumed,
-        );
-    }
-  }
-}
-
-Result<E, List<A>> _interpretMany1<E, A>(Parser<E, A> p, ParserState state) {
-  final first = interpretI<E, A>(p, state);
-  return switch (first) {
-    Success<E, A>(:final value, :final consumed) => () {
-      final rest = _interpretMany<E, A>(p, state);
-      return switch (rest) {
-        Success<E, List<A>>(value: final tail, consumed: final c2) =>
-          Success<E, List<A>>([value, ...tail], consumed + c2),
-        Partial<E, List<A>>(
-          value: final tail,
-          :final errorThunk,
-          consumed: final c2,
-        ) =>
-          Partial<E, List<A>>([value, ...tail], errorThunk, consumed + c2),
-        Failure<E, List<A>>() => rest,
-      };
-    }(),
-    Partial<E, A>(:final value, errorThunk: final mk1, :final consumed) => () {
-      final rest = _interpretMany<E, A>(p, state);
-      return switch (rest) {
-        Success<E, List<A>>(value: final tail, consumed: final c2) =>
-          Partial<E, List<A>>([value, ...tail], mk1, consumed + c2),
-        Partial<E, List<A>>(
-          value: final tail,
-          errorThunk: final mk2,
-          consumed: final c2,
-        ) =>
-          Partial<E, List<A>>(
-            [value, ...tail],
-            () => [...mk1(), ...mk2()],
-            consumed + c2,
-          ),
-        Failure<E, List<A>>(errorThunk: final mk2, :final furthest) =>
-          Failure<E, List<A>>(() => [...mk1(), ...mk2()], furthest),
-      };
-    }(),
-    Failure<E, A>(:final errorThunk, :final furthest) => Failure<E, List<A>>(
-      errorThunk,
-      furthest,
-    ),
-  };
-}
-
-Result<E, void> _interpretSkipMany<E, A>(Parser<E, A> p, ParserState state) {
-  final errThunks = <List<E> Function()>[];
-  var totalConsumed = 0;
-  final simple = p.isSimple;
-
-  while (true) {
-    final snapshot = simple ? null : state.save();
-    final result = interpretI<E, A>(p, state);
-    switch (result) {
-      case Success<E, A>(:final consumed):
-        totalConsumed += consumed;
-      case Partial<E, A>(:final errorThunk, :final consumed):
-        errThunks.add(errorThunk);
-        totalConsumed += consumed;
-      case Failure<E, A>():
-        if (snapshot != null) state.restore(snapshot);
-        if (errThunks.isEmpty) return Success<E, void>(null, totalConsumed);
-        return Partial<E, void>(
-          null,
-          () => errThunks.expand((t) => t()).toList(),
-          totalConsumed,
-        );
-    }
-  }
-}
-
-Result<E, A> _interpretChoice<E, A>(
-  List<Parser<E, A>> alternatives,
-  ParserState state,
-) {
-  final snapshot = state.save();
-  List<E> Function() accMkErrors = () => [];
-  var furthest = state.location;
-
-  for (final alt in alternatives) {
-    final result = interpretI<E, A>(alt, state);
-    if (result is! Failure<E, A>) return result;
-    state.restore(snapshot);
-
-    if (result.furthest.offset > furthest.offset) {
-      accMkErrors = result.errorThunk;
-      furthest = result.furthest;
-    } else if (result.furthest.offset == furthest.offset) {
-      final prev = accMkErrors;
-      final curr = result.errorThunk;
-      accMkErrors = () => [...prev(), ...curr()];
-    }
-  }
-
-  return Failure<E, A>(accMkErrors, furthest);
-}
-
 Result<E, A> _interpretStringChoice<E, A>(
   RadixNode radix,
   List<String> targets,
@@ -1026,47 +1627,6 @@ Result<E, A> _interpretStringChoice<E, A>(
   );
   final expected = targets.map((s) => '"$s"').toSet();
   return Failure<E, A>(() => [Unexpected(found, expected, loc) as E], loc);
-}
-
-// ===========================================================================
-// Fused Capture(Many) / Capture(Many1) — skip list allocation
-// ===========================================================================
-
-Result<E, String> _interpretCaptureMany<E, A>(
-  Parser<E, A> p,
-  ParserState state, {
-  required bool required,
-}) {
-  final startOff = state.offset;
-  final errThunks = <List<E> Function()>[];
-  var totalConsumed = 0;
-  final simple = p.isSimple;
-
-  while (true) {
-    final snapshot = simple ? 0 : state.save();
-    final result = interpretI<E, A>(p, state);
-    switch (result) {
-      case Success<E, A>(:final consumed):
-        totalConsumed += consumed;
-      case Partial<E, A>(:final errorThunk, :final consumed):
-        errThunks.add(errorThunk);
-        totalConsumed += consumed;
-      case Failure<E, A>():
-        if (!simple) state.restore(snapshot);
-        if (required && totalConsumed == 0) {
-          return Failure<E, String>(result.errorThunk, result.furthest);
-        }
-        final captured = state.slice(startOff, startOff + totalConsumed);
-        if (errThunks.isEmpty) {
-          return Success<E, String>(captured, totalConsumed);
-        }
-        return Partial<E, String>(
-          captured,
-          () => errThunks.expand((t) => t()).toList(),
-          totalConsumed,
-        );
-    }
-  }
 }
 
 // ===========================================================================
@@ -1207,77 +1767,6 @@ Result<E, void> _skipManyString<E>(String target, ParserState state) {
     totalConsumed += len;
   }
   return Success<E, void>(null, totalConsumed);
-}
-
-/// chainl1: parse `p`, then loop on `(op p)`. On op-or-p failure backtrack
-/// to the iteration start and return the accumulated lhs. Mirrors the
-/// recursive `Or(FlatMap(op,FlatMap(p,...)), Succeed(acc))` definition's
-/// semantics — any soft failure stops the chain — but iteratively, so
-/// chain depth does not consume Dart call frames.
-Result<E, A> _interpretChainl1<E, A>(
-  Parser<E, A> p,
-  Parser<E, A Function(A, A)> op,
-  ParserState state,
-) {
-  final first = interpretI<E, A>(p, state);
-  if (first is! Success<E, A>) return first;
-  var lhs = first.value;
-  var totalConsumed = first.consumed;
-
-  while (true) {
-    final snapshot = state.save();
-    final opR = interpretI<E, A Function(A, A)>(op, state);
-    if (opR is! Success<E, A Function(A, A)>) {
-      state.restore(snapshot);
-      return Success<E, A>(lhs, totalConsumed);
-    }
-    final rhs = interpretI<E, A>(p, state);
-    if (rhs is! Success<E, A>) {
-      state.restore(snapshot);
-      return Success<E, A>(lhs, totalConsumed);
-    }
-    lhs = opR.value(lhs, rhs.value);
-    totalConsumed += opR.consumed + rhs.consumed;
-  }
-}
-
-/// chainr1: parse all elements and operators iteratively, then fold right
-/// at the end. The fold itself is a tight loop over the collected lists,
-/// so chain depth does not consume Dart call frames.
-Result<E, A> _interpretChainr1<E, A>(
-  Parser<E, A> p,
-  Parser<E, A Function(A, A)> op,
-  ParserState state,
-) {
-  final first = interpretI<E, A>(p, state);
-  if (first is! Success<E, A>) return first;
-  final values = <A>[first.value];
-  final ops = <A Function(A, A)>[];
-  var totalConsumed = first.consumed;
-
-  while (true) {
-    final snapshot = state.save();
-    final opR = interpretI<E, A Function(A, A)>(op, state);
-    if (opR is! Success<E, A Function(A, A)>) {
-      state.restore(snapshot);
-      break;
-    }
-    final rhs = interpretI<E, A>(p, state);
-    if (rhs is! Success<E, A>) {
-      state.restore(snapshot);
-      break;
-    }
-    ops.add(opR.value);
-    values.add(rhs.value);
-    totalConsumed += opR.consumed + rhs.consumed;
-  }
-
-  // Right fold: a op (b op (c op d)).
-  var acc = values.last;
-  for (var i = values.length - 2; i >= 0; i--) {
-    acc = ops[i](values[i], acc);
-  }
-  return Success<E, A>(acc, totalConsumed);
 }
 
 /// Frame on the Pratt operator stack: a pending operation waiting for the

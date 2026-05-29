@@ -327,6 +327,15 @@ final class Many<E, A> extends Parser<E, List<A>> {
   Result<E, List<A>> interpretWith(
     Result<E, List<T>> Function<T>(Parser<E, T>) interpret,
   ) => interpret<A>(parser);
+
+  /// Rebuild a type-erased accumulator into a correctly-typed `List<A>`.
+  ///
+  /// The trampoline accumulates elements into a `List<Object?>` (it has no
+  /// static element type during the erased drive); this reifies the element
+  /// type `A` from the node so downstream `Mapped`/`FlatMap` casts that expect
+  /// a `List<A>` succeed. Dart reifies generics, so the list's runtime element
+  /// type must be exactly `A`.
+  List<Object?> buildList(List<Object?> xs) => List<A>.from(xs);
 }
 
 /// Matches [parser] one or more times.
@@ -341,6 +350,10 @@ final class Many1<E, A> extends Parser<E, List<A>> {
   Result<E, List<A>> interpretWith(
     Result<E, List<T>> Function<T>(Parser<E, T>) interpret,
   ) => interpret<A>(parser);
+
+  /// Rebuild a type-erased accumulator into a correctly-typed `List<A>`.
+  /// See [Many.buildList].
+  List<Object?> buildList(List<Object?> xs) => List<A>.from(xs);
 }
 
 /// Matches [parser] zero or more times, discarding results.
@@ -378,6 +391,16 @@ final class Chainl1<E, A> extends Parser<E, A> {
     Result<E, T> Function<T>(Parser<E, T> p, Parser<E, T Function(T, T)> op)
     run,
   ) => run<A>(p, op);
+
+  /// The element parser, with its result type erased. Used by the trampoline,
+  /// which drives sub-parses untyped. Reading [op] through a destructuring
+  /// pattern (`Chainl1<dynamic, dynamic>`) would impose a contravariant
+  /// function-type cast that a typed combiner fails; this getter upcasts the
+  /// value type covariantly instead, with no runtime cast.
+  Parser<E, Object?> get elementParser => p;
+
+  /// The operator parser, result type erased. See [elementParser].
+  Parser<E, Object?> get opParser => op;
 }
 
 /// Right-associative binary operator chain: `p (op p)*` folded as
@@ -401,6 +424,12 @@ final class Chainr1<E, A> extends Parser<E, A> {
     Result<E, T> Function<T>(Parser<E, T> p, Parser<E, T Function(T, T)> op)
     run,
   ) => run<A>(p, op);
+
+  /// The element parser, result type erased. See [Chainl1.elementParser].
+  Parser<E, Object?> get elementParser => p;
+
+  /// The operator parser, result type erased. See [Chainl1.elementParser].
+  Parser<E, Object?> get opParser => op;
 }
 
 /// Matches [parser] and returns the consumed input as a string.
