@@ -1,7 +1,7 @@
 /// YAML AST types.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 /// A YAML value.
 sealed class YamlValue {

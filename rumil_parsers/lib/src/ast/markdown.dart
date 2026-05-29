@@ -4,7 +4,7 @@
 /// `int`, link href as `String`), not string tags or attribute maps.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 /// A Markdown AST node.
 sealed class MdNode {

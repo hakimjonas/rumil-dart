@@ -2,6 +2,7 @@
 library;
 
 import 'errors.dart';
+import 'green_node.dart';
 import 'memo.dart';
 import 'pratt_op.dart';
 import 'radix.dart';
@@ -414,6 +415,33 @@ final class Capture<E, A> extends Parser<E, String> {
   Result<E, String> interpretWith(
     Result<E, String> Function(Parser<E, A>) interpret,
   ) => interpret(parser);
+}
+
+/// Runs [inner] and interns its produced green through the parse-scoped
+/// `GreenCache`, replacing the value with the canonical instance so
+/// structurally-equal greens across the parse collapse to one heap object.
+///
+/// Opt-in via the `internToken` / `internTree` combinators. Same
+/// one-case-one-handler integration as [Memo]: the interpreter reads the
+/// cache from `ParserState`; no other parser case threads it.
+final class InternedGreen<E, Tok, Syn>
+    extends Parser<E, GreenNode<Tok, Syn>> {
+  /// The parser whose produced green is interned.
+  final Parser<E, GreenNode<Tok, Syn>> inner;
+
+  /// Creates an interning wrapper.
+  const InternedGreen(this.inner);
+
+  /// Dispatch to the interpreter with [Tok]/[Syn] reified. Mirrors the
+  /// pattern used by [Mapped]/[Zip]/[Pratt]: routing through this instance
+  /// method keeps the receiver's generic parameters at runtime, so the
+  /// handler produces a `Result<E, GreenNode<Tok, Syn>>` with the precise
+  /// types rather than `GreenNode<dynamic, dynamic>` (which would not cast
+  /// back under Dart's invariant generics).
+  Result<E, GreenNode<Tok, Syn>> interpretWith(
+    Result<E, GreenNode<T0, S0>> Function<T0, S0>(InternedGreen<E, T0, S0>)
+    run,
+  ) => run<Tok, Syn>(this);
 }
 
 // ---------------------------------------------------------------------------

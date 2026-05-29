@@ -1,7 +1,7 @@
 /// HCL (HashiCorp Configuration Language) AST types.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 // ---------------------------------------------------------------------------
 // Values

@@ -1,3 +1,142 @@
+## 0.9.0
+
+**Lossless syntax trees, resilient parsing, and incremental reparse —
+the rust-analyzer/Rowan green/red architecture, as combinators.** This
+is the largest release since 0.1: it brings PL-grade language-tooling
+support — the lossless, positional, incrementally-updatable tree layer
+an LSP or linter needs — to rumil. Everything is additive on the public
+surface — 0.7.x parsers, combinators, `Location`, and the format ASTs
+are unchanged; the one Parser ADT addition (`InternedGreen`) is a new
+case, not a change to existing ones.
+
+The shape: a parse can now produce a position-independent, lossless
+**green tree** (`GreenNode`) instead of (or alongside) a plain value;
+a **red tree** (`RedTree`) projects positions onto it on demand;
+**resilient combinators** record what went wrong *in* the tree rather
+than as a flat error list; **interning** shares structurally-equal
+subtrees; and **incremental reparse** updates a tree after an edit by
+reparsing only the affected region. Version jumps 0.7.1 → 0.9.0 (not
+0.8.0) so the rumil family lands back in lockstep — `rumil_parsers` is
+already at 0.8.1.
+
+### Added — green/red trees
+
+- **`GreenNode<Tok, Syn>`**: a sealed, position-independent, lossless
+  syntax-tree node, parameterized by a grammar's token alphabet `Tok`
+  and syntax-node alphabet `Syn`. Four cases: `GreenToken` (kind +
+  text), `GreenTree` (kind + children), `GreenMissing` (zero-width
+  placeholder for an expected-but-absent token), `GreenUnexpected`
+  (wrapper over skipped tokens during recovery). Carries no offsets —
+  the same subtree is valid at any position in any document, which is
+  what makes sharing and splicing cheap. `textLength` is a cached
+  field (O(1)); `toSource()` reconstructs the covered source
+  (iterative, stack-safe), preserving the lossless invariant
+  `toSource(parse(s)) == s`.
+
+- **`RedTree<Tok, Syn>`**: an ephemeral position-aware view over a
+  green tree. Computes offsets/spans on demand from the source;
+  resolves real line/column via the existing `Location` machinery (no
+  placeholder positions). Navigation — `children`, `parentNode`,
+  `nextSibling`/`prevSibling`, `descendants` (lazy), `ancestors` — plus
+  `nodeAt(offset)` (cursor query), `nodeEnclosingRange(start, end)`
+  (edit-range query), `findReparseRegion` / `findReparseAncestor`,
+  `pathFromRoot`, and `validateWith(isErrorToken)` which collects
+  `GreenMissing` / `GreenUnexpected` / error-token markers as
+  positioned `ParseError`s in source order. Every depth-walking method
+  is iterative over an explicit worklist — stack-safe to memory-only
+  depth, consistent with the parser interpreter; verified at 50k tree
+  depth.
+
+- **Per-language convention, no `Language` type**: a grammar declares
+  `Tok`/`Syn` enums and abbreviates with top-level typedefs
+  (`typedef JsonGreen = GreenNode<JsonTok, JsonSyn>;`). Cross-grammar
+  safety is the generic parameters plus the analyzer's
+  `unrelated_type_equality_checks` (promoted to an error in this
+  package). Dart's top-level type aliases make a dedicated bundling
+  type unnecessary.
+
+### Added — resilient parsing
+
+- **`treeOf(kind, [parts])`**: compose child green-producing parsers
+  into a `GreenTree` — the Rowan `start_node`/`finish_node` shape as a
+  combinator.
+- **`expectToken(kind, inner)`**: on `inner` failure, synthesize a
+  zero-width `GreenMissing(kind)` and continue as a `Partial` carrying
+  the original errors — so a missing `)` becomes an in-tree placeholder
+  instead of aborting the parse. Lossless because Missing has zero
+  width.
+- **`syncUntil(inner, syncChars, errorTokenKind)`**: panic-mode
+  recovery — on failure, skip to the next sync character, wrap the
+  skipped text in a `GreenUnexpected`, resume as a `Partial`. The
+  SwiftSyntax resilient-tree model, in combinator form.
+
+### Added — interning (hash-consing)
+
+- **`GreenCache`** + **`InternedGreen`** parser case + **`internToken`
+  / `internTree`** combinators: structurally-equal greens across one
+  parse collapse to a single canonical instance (`identical`). The
+  cache is parse-scoped, mutable, and non-generic (a generic `intern`
+  *method*), so it lives on `ParserState` without parameterizing it.
+  `internToken` vs `internTree` is a cost signal — token equality is
+  `kind + text`; tree equality recurses into children. `RedTree` sibling
+  navigation keys on `childIndex`, not green identity, so it is
+  unaffected by interning making siblings `identical`.
+
+### Added — tree splicing + incremental reparse
+
+- **`TreeSplicing.replaceAt(root, path, replacement)`**: pure-functional
+  subtree replacement with structural sharing — only the spine from
+  root to the path is rebuilt; off-path siblings are reused by
+  reference. Stack-safe (descend-then-rebuild over an explicit frame
+  list); position-independence means no span-fixup pass. Returns null on
+  an unresolvable path (the incremental parser falls back to full
+  reparse).
+- **`TextEdit`**: the unit of incremental reparse — replace
+  `[startOffset, endOffset)` with text, with `insert`/`delete`/`replace`
+  factories, `apply`, `adjustOffset`, `lengthDelta`, and `compose`.
+- **`IncrementalParser`** (`incrementalParse`, `batchIncrementalParse`,
+  `applyEdit` extension, `ReparseableParsers` bundle): updates a green
+  tree after a `TextEdit` via a three-tier strategy — token-level
+  micro-update (edit inside one simple token, spliced in place),
+  block-level reparse (reparse the smallest registered ancestor's
+  region, splice it back), full-reparse fallback. `onParseFailure`
+  preserves the lossless invariant even on total parse failure.
+
+### Performance — incremental reparse
+
+Raw measured numbers, both runtimes, hardened against dead-code
+elimination (results are observed via a sink) and taken in steady state
+(20 000 warmup iterations). The grammar is a document of N `(digits);`
+groups; the edits are a token-level edit (inside one digit run) and a
+block-level edit (insert a structural `+`); the `full` column is a
+full reparse of the same document for reference.
+
+| Document | AOT token | AOT block | AOT full | WASM token | WASM block | WASM full |
+|----------|----------:|----------:|---------:|-----------:|-----------:|----------:|
+| 100      |    1.5 μs |    2.5 μs |    92 μs |     0.4 μs |     1.4 μs |     65 μs |
+| 1 000    |    8.2 μs |    8.9 μs |   898 μs |     2.5 μs |     3.9 μs |    774 μs |
+| 10 000   |     73 μs |     76 μs | 11 516 μs |     22 μs |     25 μs |  11 006 μs |
+
+AOT is `dart compile exe`; WASM is `dart compile wasm` run under V8 via
+Deno — two separate runtimes, reported independently. Reproduce from
+`rumil_bench/`:
+
+```bash
+tool/run_both.sh bin/bench_incremental.dart   # Deno required for WASM
+```
+
+### Notes
+
+- The green/red layer is additive: existing consumers that produce
+  plain values (`parseJson` → `JsonValue`, etc.) are untouched. Green
+  trees are an opt-in output shape for consumers that need lossless,
+  positional, or incrementally-updatable trees (LSPs, linters,
+  formatters, code generators).
+- `_equality` helpers (`listEquals`/`mapEquals`/`listHash`/`mapHash`,
+  plus new `setEquals`/`setHash`) moved from `rumil_parsers` into rumil
+  core as `package:rumil` exports — one canonical source for both
+  layers.
+
 ## 0.7.1
 
 **`LineIndex` for O(log n) line/column resolution, and a hot/cold
@@ -18,8 +157,7 @@ combinators, and the rest are unchanged.
   Motivated by streaming parsers (NDJSON, multi-document YAML) that
   produce many errors against the same input: rendering N errors to
   `line:column` was O(N·n) without an index, O(N·log n) with one.
-  Mirrors the LineIndex from rumil-scala, including its
-  line-terminator policy: `\n` is the sole terminator; `\r` is a
+  Line-terminator policy: `\n` is the sole terminator; `\r` is a
   regular character; callers normalize at the editor or LSP boundary
   before building the index. Column encoding is UTF-16 code units,
   matching the LSP default.

@@ -5,6 +5,13 @@ analyzer:
     strict-casts: true
     strict-inference: true
     strict-raw-types: true
+  errors:
+    # Cross-grammar value comparison (e.g. a JsonTok green compared to a
+    # YamlTok green) is a correctness bug in a multi-language parser
+    # substrate, not a style nit. Promote the recommended-lint warning to
+    # an error. Deliberate cross-type comparisons in tests opt out with a
+    # local `// ignore: unrelated_type_equality_checks`.
+    unrelated_type_equality_checks: error
 
 linter:
   rules:

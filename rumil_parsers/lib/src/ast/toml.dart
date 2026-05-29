@@ -1,7 +1,7 @@
 /// TOML AST types.
 library;
 
-import '_equality.dart';
+import 'package:rumil/rumil.dart';
 
 /// A TOML value.
 sealed class TomlValue {
