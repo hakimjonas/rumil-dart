@@ -170,6 +170,23 @@ void main() {
       expect(texts, ['(', '1+2', '1', '+', '2', ')']);
     });
 
+    test('descendants is lazy — early termination short-circuits the walk', () {
+      // A 100k-deep tree. firstWhere on the first descendant must not walk
+      // the whole tree; it returns as soon as the predicate matches. If
+      // descendants were eager this would still pass but allocate 100k
+      // nodes; the value here is documenting/locking the lazy contract.
+      G current = const Tk(Tok.num, '0');
+      for (var i = 0; i < 100000; i++) {
+        current = Tr(Syn.expr, [current]);
+      }
+      final r = RedTree(current, '0');
+      // The first descendant is the single child of the root.
+      final first = r.descendants.first;
+      expect(first.isTree, isTrue);
+      // take(2) yields exactly two without forcing the rest.
+      expect(r.descendants.take(2).length, 2);
+    });
+
     test('ancestors from node to root', () {
       final g = Tr(Syn.root, [
         Tr(Syn.expr, [
@@ -404,6 +421,20 @@ void main() {
       final errors = r.validateWith((t) => t == Tok.error);
       final offsets = errors.map((e) => e.location.offset).toList();
       expect(offsets, [0, 1, 2]);
+    });
+
+    test('error locations carry correct line/column on multi-line source', () {
+      // 'ok\n  bad' — an error token on line 2, column 3.
+      final g = Tr(Syn.root, [
+        const Tk(Tok.num, 'ok\n  '),
+        const Tk(Tok.error, 'bad'),
+      ]);
+      final r = RedTree(g, 'ok\n  bad');
+      final errors = r.validateWith((t) => t == Tok.error);
+      expect(errors.length, 1);
+      expect(errors[0].location.line, 2);
+      expect(errors[0].location.column, 3);
+      expect(errors[0].location.offset, 5);
     });
   });
 

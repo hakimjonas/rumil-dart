@@ -25,6 +25,7 @@ library;
 
 import 'errors.dart';
 import 'green_node.dart';
+import 'line_index.dart';
 import 'location.dart';
 
 /// A position-aware view over a [GreenNode], parameterized by a language's
@@ -61,9 +62,13 @@ final class RedTree<Tok, Syn> {
   factory RedTree(GreenNode<Tok, Syn> green, String source) =>
       RedTree._(green, 0, null, 0, source);
 
-  /// Source-character length of this node's green subtree. Cached on first
-  /// access — greens are immutable, so length never changes.
-  late final int length = GreenNodeOps.textLength(green);
+  /// Source-character length of this node's green subtree.
+  ///
+  /// A pure forward to the green's own cached [GreenNode.textLength] (O(1)).
+  /// Not stored on the red node — reds are ephemeral and numerous, and the
+  /// length already lives on the immutable green, so a second per-red cache
+  /// would only add a field to the hot allocation for no benefit.
+  int get length => green.textLength;
 
   /// One-past-the-last source offset covered by this node.
   int get endOffset => offset + length;
@@ -86,15 +91,22 @@ final class RedTree<Tok, Syn> {
   /// The source text covered by this node, reconstructed from the green
   /// subtree. Self-contained — works on synthetic or spliced trees that
   /// don't correspond to a contiguous region of [_source].
+  ///
+  /// Not cached: each access re-walks the subtree via
+  /// [GreenNodeOps.toSource] (O(subtree size)). Cheap for tokens; for an
+  /// interior node accessed repeatedly, hoist the result into a local.
+  /// Reds are ephemeral, so caching here would bloat the hot allocation for
+  /// a value most call sites read at most once.
   String get text => GreenNodeOps.toSource(green);
 
   /// Children as red trees, each carrying its correct absolute offset.
   ///
   /// [GreenTree] and [GreenUnexpected] carry children; [GreenToken] and
-  /// [GreenMissing] are leaves and return an empty list. Walks the green's
-  /// children once, summing each child's [GreenNodeOps.textLength] to place
-  /// the next child. [GreenMissing] contributes zero, so a Missing child's
-  /// red view sits at the same offset as the token that would follow it.
+  /// [GreenMissing] are leaves and return an empty list. Places each child
+  /// by accumulating the prior children's [GreenNode.textLength] — each an
+  /// O(1) field read — so building one node's children is O(its child
+  /// count). [GreenMissing] contributes zero, so a Missing child's red view
+  /// sits at the same offset as the token that would follow it.
   late final List<RedTree<Tok, Syn>> children = _computeChildren();
 
   List<RedTree<Tok, Syn>> _computeChildren() {
@@ -109,7 +121,7 @@ final class RedTree<Tok, Syn> {
     for (var i = 0; i < kids.length; i++) {
       final kid = kids[i];
       result.add(RedTree._(kid, childOffset, this, i, _source));
-      childOffset += GreenNodeOps.textLength(kid);
+      childOffset += kid.textLength;
     }
     return result;
   }
@@ -133,10 +145,13 @@ final class RedTree<Tok, Syn> {
   }
 
   /// All descendants in pre-order (parents before children), excluding this
-  /// node. Iterative — chain depth lives in the worklist, not the call
-  /// stack, so arbitrarily deep trees are safe.
-  List<RedTree<Tok, Syn>> get descendants {
-    final result = <RedTree<Tok, Syn>>[];
+  /// node.
+  ///
+  /// Lazy: yields on demand over an explicit worklist, so chain depth lives
+  /// in the worklist (not the call stack) and a caller using `.firstWhere`
+  /// / `.any` / `.take` stops the walk early without materializing the rest.
+  /// Use `.toList()` when an eager snapshot is wanted.
+  Iterable<RedTree<Tok, Syn>> get descendants sync* {
     // Seed with this node's children in order; process depth-first while
     // preserving pre-order by pushing each node's children reversed.
     final stack = <RedTree<Tok, Syn>>[];
@@ -146,13 +161,12 @@ final class RedTree<Tok, Syn> {
     }
     while (stack.isNotEmpty) {
       final node = stack.removeLast();
-      result.add(node);
+      yield node;
       final nodeKids = node.children;
       for (var i = nodeKids.length - 1; i >= 0; i--) {
         stack.add(nodeKids[i]);
       }
     }
-    return result;
   }
 
   /// All ancestors from immediate parent up to the root, in that order.
@@ -219,11 +233,13 @@ final class RedTree<Tok, Syn> {
   ///   to the enclosing parent, not the placeholder.
   ///
   /// A pure insertion at the very end of the source
-  /// (`editStart == editEnd == endOffset`) therefore resolves to the node
-  /// whose span the edit falls at the end of — descending only while a
-  /// child's interior still contains the start — ultimately this node when
-  /// no child qualifies. An insertion strictly between two children resolves
-  /// to their deepest common ancestor. Iterative descent.
+  /// (`editStart == editEnd == endOffset`) resolves to the enclosing node,
+  /// not its last child: the last child's half-open interior ends before
+  /// `endOffset`, so no child's start-containment holds and the descent
+  /// stops. On the root this means the root itself — consistent with
+  /// `nodeAt(endOffset) == null` (no node *starts*-contains end-of-input).
+  /// An insertion strictly between two children resolves to their deepest
+  /// common ancestor. Iterative descent.
   RedTree<Tok, Syn>? nodeEnclosingRange(int editStart, int editEnd) {
     if (editStart < offset || editEnd > endOffset) return null;
     var node = this;
@@ -342,9 +358,16 @@ final class RedTree<Tok, Syn> {
   ///
   /// `isErrorToken` is supplied by the caller so the notion of an "error
   /// token kind" stays language-specific. Errors carry a real [Location]
-  /// resolved against the source. Iterative pre-order walk.
+  /// resolved against the source.
+  ///
+  /// Builds one [LineIndex] over the source up front and resolves every
+  /// error position through it in O(log n), so a resilient parse with many
+  /// error markers stays O(errors × log n) rather than O(errors × offset).
+  /// Iterative pre-order walk — depth lives in the worklist, not the call
+  /// stack.
   List<ParseError> validateWith(bool Function(Tok) isErrorToken) {
     final errors = <ParseError>[];
+    final index = LineIndex(_source);
     final stack = <RedTree<Tok, Syn>>[this];
     // Pre-order: push children reversed so they pop left-to-right. Because
     // we emit the current node's error before pushing children, errors come
@@ -354,11 +377,20 @@ final class RedTree<Tok, Syn> {
       switch (node.green) {
         case GreenToken<Tok, Syn>(:final kind, :final text)
             when isErrorToken(kind):
-          errors.add(CustomError('Error token: $text', node.location));
+          errors.add(
+            CustomError('Error token: $text', index.locationAt(node.offset)),
+          );
         case GreenMissing<Tok, Syn>(:final expected):
-          errors.add(EndOfInput(expected.toString(), node.location));
+          errors.add(
+            EndOfInput(expected.toString(), index.locationAt(node.offset)),
+          );
         case GreenUnexpected<Tok, Syn>():
-          errors.add(CustomError('Unexpected: ${node.text}', node.location));
+          errors.add(
+            CustomError(
+              'Unexpected: ${node.text}',
+              index.locationAt(node.offset),
+            ),
+          );
         case _:
           break;
       }
