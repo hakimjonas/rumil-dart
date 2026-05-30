@@ -264,6 +264,38 @@ final class Zip<E, A, B> extends Parser<E, (A, B)> {
   }
 }
 
+/// Sequences [left] then [right], keeping ONLY [right]'s value (`a.skipThen(b)`).
+///
+/// A fused alternative to `Zip(left, right).map((p) => p.$2)`: the interpreter
+/// runs both and returns the right value directly, never allocating the `(a, b)`
+/// record nor a discarding `Mapped`. This is the dominant token shape in real
+/// grammars (every `_lex`-wrapped atom, structural separators), so eliminating
+/// the per-token record + map frame is the highest-frequency dispatch/alloc win.
+final class SkipLeft<E, A, B> extends Parser<E, B> {
+  /// The parser whose value is discarded.
+  final Parser<E, A> left;
+
+  /// The parser whose value is kept.
+  final Parser<E, B> right;
+
+  /// Creates a skip-left sequence.
+  const SkipLeft(this.left, this.right);
+}
+
+/// Sequences [left] then [right], keeping ONLY [left]'s value (`a.thenSkip(b)`).
+///
+/// The fused counterpart to [SkipLeft]; see its doc. Avoids the record + map.
+final class SkipRight<E, A, B> extends Parser<E, A> {
+  /// The parser whose value is kept.
+  final Parser<E, A> left;
+
+  /// The parser whose value is discarded.
+  final Parser<E, B> right;
+
+  /// Creates a skip-right sequence.
+  const SkipRight(this.left, this.right);
+}
+
 // ---------------------------------------------------------------------------
 // Alternation
 // ---------------------------------------------------------------------------

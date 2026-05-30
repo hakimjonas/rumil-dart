@@ -102,6 +102,32 @@ final class _ContZipCombine extends _Cont {
   const _ContZipCombine(this.leftValue, this.leftConsumed, this.next);
 }
 
+/// Awaiting the left side of a `SkipLeft`/`SkipRight`. [keepLeft] true means
+/// keep the left value (thenSkip), false means discard it (skipThen). On
+/// success, descend into `right` under a [_ContSkipRightSide].
+final class _ContSkipLeftSide extends _Cont {
+  final Parser<dynamic, dynamic> right;
+  final bool keepLeft;
+  final _Cont next;
+  const _ContSkipLeftSide(this.right, this.keepLeft, this.next);
+}
+
+/// Awaiting the right side of a `SkipLeft`/`SkipRight`. Combines consumed counts
+/// and yields either [leftValue] (keepLeft) or the right value — no `(a, b)`
+/// record is ever built.
+final class _ContSkipRightSide extends _Cont {
+  final Object? leftValue;
+  final int leftConsumed;
+  final bool keepLeft;
+  final _Cont next;
+  const _ContSkipRightSide(
+    this.leftValue,
+    this.leftConsumed,
+    this.keepLeft,
+    this.next,
+  );
+}
+
 final class _ContPartial extends _Cont {
   final List<Object?> Function() mkErrors;
   final _Cont next;
@@ -452,6 +478,18 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         currentParser = thunk();
         continue eval;
 
+      // Fused skipThen/thenSkip: run left, then right, keep one value — no
+      // (a,b) record, no discarding Mapped. The highest-frequency token shape.
+      case SkipLeft<dynamic, dynamic, dynamic>(:final left, :final right):
+        cont = _ContSkipLeftSide(right, false, cont);
+        currentParser = left;
+        continue eval;
+
+      case SkipRight<dynamic, dynamic, dynamic>(:final left, :final right):
+        cont = _ContSkipLeftSide(right, true, cont);
+        currentParser = left;
+        continue eval;
+
       case FirstCharChoice<dynamic, dynamic>(
         :final dispatch,
         :final fallback,
@@ -767,6 +805,62 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           )) {
             result = Partial<Object?, Object?>(
               (leftValue, value),
+              errorThunk,
+              leftConsumed + consumed,
+            );
+          }
+          cont = next;
+          continue apply;
+
+        case _ContSkipLeftSide(:final right, :final keepLeft, :final next):
+          // Left side done. On success/partial, descend into right, carrying
+          // the left value + consumed forward (mirrors Zip, but no record).
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            cont = _ContSkipRightSide(value, consumed, keepLeft, next);
+            currentParser = right;
+            continue eval;
+          }
+          if (result case Partial<Object?, Object?>(
+            :final value,
+            :final errorThunk,
+            :final consumed,
+          )) {
+            cont = _ContPartial(
+              errorThunk,
+              _ContSkipRightSide(value, consumed, keepLeft, next),
+            );
+            currentParser = right;
+            continue eval;
+          }
+          // Left failed: propagate the failure unchanged.
+          cont = next;
+          continue apply;
+
+        case _ContSkipRightSide(
+          :final leftValue,
+          :final leftConsumed,
+          :final keepLeft,
+          :final next,
+        ):
+          // Right side done. Keep one value, sum consumed; build no record.
+          if (result case Success<Object?, Object?>(
+            :final value,
+            :final consumed,
+          )) {
+            result = Success<Object?, Object?>(
+              keepLeft ? leftValue : value,
+              leftConsumed + consumed,
+            );
+          } else if (result case Partial<Object?, Object?>(
+            :final value,
+            :final errorThunk,
+            :final consumed,
+          )) {
+            result = Partial<Object?, Object?>(
+              keepLeft ? leftValue : value,
               errorThunk,
               leftConsumed + consumed,
             );
@@ -2269,6 +2363,14 @@ Failure<E, A>? _firstFail<E, A>(Parser<E, A> p, ParserState state) {
         node = source;
 
       case Zip(:final left):
+        node = left;
+
+      // skipThen/thenSkip both run `left` first, so the leading char is
+      // decidable from it (same as Zip-left). Peel it for the FIRST-set check.
+      case SkipLeft(:final left):
+        node = left;
+
+      case SkipRight(:final left):
         node = left;
 
       case LookAhead(:final parser):
