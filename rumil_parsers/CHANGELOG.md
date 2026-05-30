@@ -1,14 +1,13 @@
 ## 0.10.0
 
-**The value layer is now stack-safe to memory, and serializers can
-stream.** The parser interpreter was already stack-safe; this release
-extends that guarantee to the operations that run *after* a parse —
-native conversion, serialization, and composed decoding — which had been
-naively recursive on nesting depth, so a document that *parsed* fine
-could overflow the stack on the very next step. All converters,
-serializers, and composite decoders are now iterative. Additive on the
-public surface; the version jumps 0.8.1 → 0.10.0 to rejoin the rumil
-family in lockstep.
+The value layer is now stack-safe to memory, and serializers can stream.
+The parser interpreter was already stack-safe; this release extends that
+to the operations that run after a parse (native conversion,
+serialization, and composed decoding), which had been recursive on
+nesting depth, so a document that parsed fine could overflow the stack on
+the next step. All converters, serializers, and composite decoders are
+now iterative. Additive on the public surface; the version jumps 0.8.1 →
+0.10.0 to rejoin the rumil family in lockstep.
 
 ### Fixed — value-layer stack safety
 
@@ -22,21 +21,20 @@ family in lockstep.
   YAML/TOML equivalents) drain their nesting over a worklist. The one
   remaining host-recursion boundary is the user build-callback of
   `fromJsonObject`/`fromYamlMapping`/`fromTomlTable` (and `.map`), which
-  recurses once per *schema* level, not per *value* level, and cannot be
-  trampolined without a breaking `AstDecoder.decode` signature change —
-  documented as such.
+  recurses once per schema level, not per value level, and cannot be
+  trampolined without a breaking `AstDecoder.decode` signature change, so
+  it is documented as a known boundary.
 
 ### Added — streaming serialization
 
 - **`serialize{Json,Yaml,Toml,Xml,Hcl,HclValue}To(StringSink, …)`**: each
   serializer now has a streaming primitive that writes into a
   `StringSink`; the existing `String`-returning functions are
-  byte-for-byte-identical thin wrappers over it. This decouples
-  stack-safety from output size: an indented pretty-printer emits
-  `indent × depth` whitespace per level (Θ(depth²) total — inherent to
-  pretty-printing, as in `jq` / `JSON.stringify(_, null, 2)`), and
-  streaming to a sink keeps *peak memory* bounded even when the total
-  output is large.
+  byte-for-byte-identical wrappers over it. This decouples stack-safety
+  from output size: an indented pretty-printer emits `indent × depth`
+  whitespace per level (Θ(depth²) total, inherent to pretty-printing, as
+  in `jq` or `JSON.stringify(_, null, 2)`), and streaming to a sink keeps
+  peak memory bounded even when the total output is large.
 
 ## 0.8.1
 

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/hakimjonas/rumil-dart/actions/workflows/ci.yml/badge.svg)](https://github.com/hakimjonas/rumil-dart/actions/workflows/ci.yml)
 
-Parser combinators for Dart 3 with operator precedence, typed line/column errors, and memory-bounded stack safety — alongside spec-conformant parsers for JSON, YAML, TOML, HCL, CSV, XML, Proto3, and CommonMark Markdown built on the same primitives.
+Parser combinators for Dart 3 with operator precedence, typed line/column errors, and memory-bounded stack safety, alongside spec-conformant parsers for JSON, YAML, TOML, HCL, CSV, XML, Proto3, and CommonMark Markdown built on the same primitives.
 
 *Rumil invented the first writing system (the Sarati) in Tolkien's legendarium. This library parses text into structure.*
 
@@ -167,54 +167,42 @@ final personCodec = product2(stringCodec, intCodec).xmap(
 
 ## Design
 
-Rumil represents parsers as a sealed ADT with 26 subtypes. An external interpreter dispatches over them via pattern matching. This separates data from behavior, which makes parsers inspectable and enables features like RadixNode optimization and construction-time map fusion.
+Rumil represents parsers as a sealed ADT with 34 subtypes. An external interpreter dispatches over them via pattern matching. This separates data from behavior, which makes parsers inspectable and enables features like RadixNode optimization, construction-time map fusion, and the `skipThen`/`thenSkip` → `SkipLeft`/`SkipRight` rewrite.
 
 Errors are typed (`ParseError` sealed hierarchy with line, column, and offset) and lazily constructed. On backtracking, error thunks for failing branches are never evaluated if another branch succeeds.
 
-The trampoline is defunctionalized: Parser nodes are stored in the continuation stack and functions are applied within their declaring scope via `applyF`. This keeps FlatMap chains stack-safe to arbitrary depth.
+The interpreter is a single eval/apply trampoline (a defunctionalized CEK machine) in which every sub-parse re-entry rides a heap-allocated continuation chain rather than the Dart call stack. This keeps parsing memory-bounded, not call-stack-bounded, on both operator width and structural nesting depth.
 
 No external runtime dependencies. Only `dart:typed_data` and `dart:convert`.
 
 ## Performance
 
-Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Both parsers build the same typed `JsonValue` AST so the comparison is fair.
+Benchmarked against [petitparser](https://pub.dev/packages/petitparser). Each library runs its own idiomatic parser on petitparser's own grammars and inputs, with output verified equal before timing. Two axes are reported because the libraries make different choices: **to-typed** (both build the same typed `JsonValue` AST, isolating the parser engine) and **to-native** (plain `Map`/`List`, where Rumil makes a second conversion pass petitparser does not). Numbers are medians of three runs on a Ryzen 9 9950X3D, Dart 3.12.0.
 
-### AOT native
+### JSON to-typed — engine vs engine (μs/op, large 47.7 KB doc)
 
-| Benchmark              | Rumil 0.7.1 | petitparser | Ratio |
-|------------------------|-------------|-------------|-------|
-| JSON small (39 B)      | 15.9 μs     | 2.0 μs      | 8.0×  |
-| JSON medium (45 KB)    | 22.7 ms     | 2.8 ms      | 8.0×  |
-| JSON large (803 KB)    | 256 ms      | 47 ms       | 5.5×  |
-| Expression (simple)    | 6.4 μs      | 0.75 μs     | 8.5×  |
-| Expression (100 terms) | 169 μs      | 27 μs       | 6.2×  |
+| Runtime | Rumil | petitparser | Ratio |
+|---------|------:|------------:|------:|
+| AOT     |  3736 |        2931 | 1.27× |
+| JIT     |  3919 |        2994 | 1.31× |
+| Wasm    |  4678 |        4189 | 1.12× |
 
-### dart2wasm (WasmGC)
+As of 0.10.0 the engine parses within about 1.1–1.3× of petitparser building the same typed tree. On plain native `Map`/`List` output the ratio is about 2.2–3.3× (AOT 3.3×, Wasm 2.2×), almost all of it the second conversion pass; `dart:convert` is the right tool when you only want native data.
 
-| Benchmark              | Rumil 0.7.1 | petitparser | Ratio |
-|------------------------|-------------|-------------|-------|
-| JSON small (39 B)      | 5.6 μs      | 2.6 μs      | 2.2×  |
-| JSON medium (45 KB)    | 9.3 ms      | 3.8 ms      | 2.4×  |
-| JSON large (803 KB)    | 107 ms      | 63 ms       | 1.7×  |
-| Expression (simple)    | 3.5 μs      | 1.2 μs      | 2.9×  |
-| Expression (100 terms) | 95 μs       | 47 μs       | 2.0×  |
+The AOT gap has come down from 10–13× in 0.6 and 5.5–10× in 0.7.1. The 0.10.0 `skipThen`/`thenSkip` → `SkipLeft`/`SkipRight` fusion and unified CEK trampoline (which also made nesting stack-safe) made the engine about 2× faster than 0.9.0.
 
-Trajectory: AOT was 10–13× slower in 0.6, 6–10× in 0.7.0, and 5.5–10× in 0.7.1 — the large-input case has dropped below 6×. WASM was 3–4.4× in 0.7.0 and is 1.7–3.2× in 0.7.1.
+AOT is the fastest runtime in 0.10.0, where earlier releases had WasmGC ahead. The 0.10 changes reduce dispatch and allocation, and the AOT optimizer benefits from that more than dart2wasm does. Rumil on Wasm runs about 1.05–1.8× slower than on AOT (Markdown is slightly faster on Wasm). Two things hold up under WasmGC: Rumil's sealed-ADT `br_on_cast` dispatch degrades less from AOT to Wasm than petitparser's virtual dispatch (1.25× vs 1.43× on the large doc), so the gap to petitparser narrows from 1.27× on AOT to 1.12× on Wasm; and `dart:convert`'s native decoder is itself faster on Wasm than AOT in these runs, so WasmGC is not a penalty here.
 
-The gap narrows because sealed-ADT dispatch compiles efficiently to WasmGC's `br_on_cast`, while petitparser's virtual dispatch compiles to WasmGC indirect calls — and because the 0.7.1 hot/cold split shrank the interpreter's hot dispatch path by 39%. WasmGC is consistently around 2× faster than AOT native for Rumil; petitparser is around 1.4× *slower* under WasmGC than AOT.
-
-The 0.7.x wins come from `pratt(...)` + `cFamilyPrecedence` (–30% on `rumil_expressions`, –11–13% on HCL), `firstCharChoice` (–24–27% on JSON), the FIRST-set `Or` dispatch and `Many(StringMatch)` fast paths (4–6% across the format suite in 0.7.0), and the 0.7.1 hot/cold split (a further 4–6% on the format suite, 9–14% on the dispatch microbench).
-
-See [BENCHMARKS.md](BENCHMARKS.md) for methodology, the fair-comparison breakdown, dart2wasm numbers, and format parser throughput.
+See [BENCHMARKS.md](BENCHMARKS.md) for the full AOT/JIT/Wasm matrix, expression and format-parser throughput, stack-safety verification, and methodology.
 
 ### What Rumil offers in exchange
 
 The interpreter architecture costs throughput but buys a different set of properties:
 
-- **Pratt-as-a-combinator for operator precedence.** Atoms and operator symbols are ordinary Rumil parsers, composed into a `pratt(...)` node. The interpreter walks operators iteratively over an explicit frame stack — chain depth lives in heap-allocated frames, not in the Dart call stack. When every operator symbol is a literal prefix, the builder compiles a first-code-unit dispatch table with longest-prefix-first ordering and optional word-boundary or not-followed-by guards for keyword and ambiguity cases. Inspired by Lean 4's Pratt-in-combinators approach (Pratt embedded in the combinator framework, leading/trailing split, first-token dispatch). `rule()` (Warth seed-growth) is still available for directly-left-recursive grammars that don't reduce to a binding-power table.
-- **Memory-bounded stack safety.** The defunctionalized trampoline keeps the Dart call stack constant regardless of grammar depth or input length; pending operations live on heap-allocated frame stacks. The chain primitives (`flatMap`, `chainl1`, `chainr1`, Pratt left-/right-associative, Pratt prefix) are exercised at 10 million operands in CI as a time-budget regression test, and have been validated locally at 1 billion operands. The practical ceiling is available memory, not the call stack.
+- **Pratt-as-a-combinator for operator precedence.** Atoms and operator symbols are ordinary Rumil parsers, composed into a `pratt(...)` node. The interpreter walks operators iteratively over an explicit frame stack, so chain depth lives in heap-allocated frames, not in the Dart call stack. When every operator symbol is a literal prefix, the builder compiles a first-code-unit dispatch table with longest-prefix-first ordering and optional word-boundary or not-followed-by guards for keyword and ambiguity cases. Inspired by Lean 4's Pratt-in-combinators approach (Pratt embedded in the combinator framework, leading/trailing split, first-token dispatch). `rule()` (Warth seed-growth) is still available for directly-left-recursive grammars that don't reduce to a binding-power table.
+- **Memory-bounded stack safety on both width and nesting.** The unified CEK trampoline keeps the Dart call stack constant regardless of grammar depth or input length; pending operations live on heap-allocated frame stacks. This holds on both axes: operator width (flat chains such as `flatMap`, `chainl1`, `chainr1`, and Pratt operator runs, exercised at 10 million operands in CI and validated locally at 1 billion) and structural nesting (`[[[…]]]`, `(((…)))`, deeply nested objects, exercised at 50,000 levels in CI across the four sub-parse shapes). Before 0.10.0 the nesting axis recursed on the host stack and overflowed at roughly 600–2000 levels; it is now bounded by heap, like width. The practical ceiling is available memory, not the call stack.
 - **Typed errors with location.** `ParseError` is a sealed hierarchy carrying line, column, and offset; backtracking branches that fail never construct their error message, thanks to nullable-cache thunks.
-- **Inspectable parsers.** Sealed-ADT nodes can be analyzed and rewritten at construction time — the FIRST-set `Or` rewrite, `Capture(Many)` fusion, and the Pratt op-table compilation all use this.
+- **Inspectable parsers.** Sealed-ADT nodes can be analyzed and rewritten at construction time; the FIRST-set `Or` rewrite, `Capture(Many)` fusion, and the Pratt op-table compilation all use this.
 
 ## License
 
