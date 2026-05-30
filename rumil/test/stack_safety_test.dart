@@ -236,10 +236,12 @@ void main() {
     test('Pratt with parenthesized atom — deep nesting', () {
       late final Parser<ParseError, int> expr;
       late final Parser<ParseError, int> atom;
-      atom = digit().map(int.parse).or(
-        defer(() => char('(').skipThen(expr).thenSkip(char(')'))),
-      );
-      expr = pratt<int>(atom, [InfixLeft(char('+'), 10, (int a, int b) => a + b)]);
+      atom = digit()
+          .map(int.parse)
+          .or(defer(() => char('(').skipThen(expr).thenSkip(char(')'))));
+      expr = pratt<int>(atom, [
+        InfixLeft(char('+'), 10, (int a, int b) => a + b),
+      ]);
       final input = '${'(' * depth}1${')' * depth}';
       final r = expr.run(input);
       expect(r, isA<Success<ParseError, int>>());
@@ -250,9 +252,9 @@ void main() {
       late final Parser<ParseError, int> expr;
       late final Parser<ParseError, int> term;
       final addOp = char('+').map((_) => (int a, int b) => a + b);
-      term = digit().map(int.parse).or(
-        defer(() => char('(').skipThen(expr).thenSkip(char(')'))),
-      );
+      term = digit()
+          .map(int.parse)
+          .or(defer(() => char('(').skipThen(expr).thenSkip(char(')'))));
       expr = term.chainl1(addOp);
       final input = '${'(' * depth}1${')' * depth}';
       final r = expr.run(input);
@@ -263,11 +265,15 @@ void main() {
     test('many with self-referential element — deep nesting', () {
       // Balanced brackets: value -> '0' | '[' value* ']'.
       late final Parser<ParseError, int> value;
-      value = char('0').as<int>(0).or(
-        defer(
-          () => char('[').skipThen(value.many).thenSkip(char(']')).map((_) => 1),
-        ),
-      );
+      value = char('0')
+          .as<int>(0)
+          .or(
+            defer(
+              () => char(
+                '[',
+              ).skipThen(value.many).thenSkip(char(']')).map((_) => 1),
+            ),
+          );
       final input = '${'[' * depth}0${']' * depth}';
       final r = value.run(input);
       expect(r, isA<Success<ParseError, int>>());
@@ -275,11 +281,11 @@ void main() {
 
     test('zip with self-referential right — deep nesting', () {
       late final Parser<ParseError, int> value;
-      value = char('x').as<int>(0).or(
-        defer(
-          () => char('(').zip(value).thenSkip(char(')')).map((_) => 1),
-        ),
-      );
+      value = char('x')
+          .as<int>(0)
+          .or(
+            defer(() => char('(').zip(value).thenSkip(char(')')).map((_) => 1)),
+          );
       final input = '${'(' * depth}x${')' * depth}';
       final r = value.run(input);
       expect(r, isA<Success<ParseError, int>>());
