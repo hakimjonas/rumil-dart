@@ -4,6 +4,7 @@ library;
 import '../ast/xml.dart';
 import 'encoder.dart';
 import 'escape.dart';
+import 'sink_walk.dart';
 
 // ---- Typed encoders ----
 
@@ -34,16 +35,75 @@ AstEncoder<A, XmlNode> toXmlElement<A>(
 // ---- Serializer ----
 
 /// Serialize an [XmlNode] to an XML string.
+///
+/// Thin wrapper over [serializeXmlTo]; output is byte-for-byte identical.
 String serializeXml(XmlNode node, {int indent = 2, int depth = 0}) {
-  final pad = ' ' * (indent * depth);
-  return switch (node) {
-    XmlElement(:final name, :final attributes, :final children) =>
-      _serializeElement(name, attributes, children, indent, depth),
-    XmlText(:final content) => '$pad${escapeXmlText(content)}',
-    XmlCData(:final content) => '$pad<![CDATA[$content]]>',
-    XmlComment(:final content) => '$pad<!--$content-->',
-    XmlPI(:final target, :final content) => '$pad<?$target $content?>',
+  final buffer = StringBuffer();
+  serializeXmlTo(buffer, node, indent: indent, depth: depth);
+  return buffer.toString();
+}
+
+/// Serialize an [XmlNode] into [sink].
+///
+/// Iterative (see `sink_walk.dart`): deeply-nested elements serialize without
+/// overflowing the Dart call stack. The single-text-child inline form,
+/// self-closing empty elements, attribute formatting, and `indent * depth`
+/// padding are all preserved exactly; like every indented pretty-printer the
+/// padded form's total size is Θ(depth²), but streaming to [sink] keeps peak
+/// memory bounded.
+void serializeXmlTo(
+  StringSink sink,
+  XmlNode root, {
+  int indent = 2,
+  int depth = 0,
+}) {
+  final walk = SinkWalk();
+
+  // Mutually recursive *in scheduling* only — see `sink_walk.dart`.
+  late final void Function(XmlNode, int) emit;
+  emit = (XmlNode node, int depth) {
+    final pad = ' ' * (indent * depth);
+    switch (node) {
+      case XmlText(:final content):
+        sink.write('$pad${escapeXmlText(content)}');
+      case XmlCData(:final content):
+        sink.write('$pad<![CDATA[$content]]>');
+      case XmlComment(:final content):
+        sink.write('$pad<!--$content-->');
+      case XmlPI(:final target, :final content):
+        sink.write('$pad<?$target $content?>');
+      case XmlElement(:final name, :final attributes, :final children):
+        final tag = name.format();
+        final attrs =
+            attributes.isEmpty
+                ? ''
+                : ' ${attributes.map((a) => '${a.name.format()}="${escapeXmlAttr(a.value)}"').join(' ')}';
+
+        if (children.isEmpty) {
+          sink.write('$pad<$tag$attrs/>');
+          return;
+        }
+
+        if (children.length == 1 && children.first is XmlText) {
+          final text = escapeXmlText((children.first as XmlText).content);
+          sink.write('$pad<$tag$attrs>$text</$tag>');
+          return;
+        }
+
+        sink.write('$pad<$tag$attrs>\n');
+        final steps = <SinkStep>[];
+        for (var i = 0; i < children.length; i++) {
+          final c = children[i];
+          if (i > 0) steps.add(() => sink.write('\n'));
+          steps.add(() => emit(c, depth + 1));
+        }
+        steps.add(() => sink.write('\n$pad</$tag>'));
+        walk.pushAll(steps);
+    }
   };
+
+  emit(root, depth);
+  walk.run();
 }
 
 /// Serialize with XML declaration.
@@ -58,33 +118,6 @@ String serializeXmlDocument(
   sb.writeln('?>');
   sb.write(serializeXml(root, indent: indent));
   return sb.toString();
-}
-
-String _serializeElement(
-  QName name,
-  List<XmlAttribute> attributes,
-  List<XmlNode> children,
-  int indent,
-  int depth,
-) {
-  final pad = ' ' * (indent * depth);
-  final tag = name.format();
-  final attrs =
-      attributes.isEmpty
-          ? ''
-          : ' ${attributes.map((a) => '${a.name.format()}="${escapeXmlAttr(a.value)}"').join(' ')}';
-
-  if (children.isEmpty) return '$pad<$tag$attrs/>';
-
-  if (children.length == 1 && children.first is XmlText) {
-    final text = escapeXmlText((children.first as XmlText).content);
-    return '$pad<$tag$attrs>$text</$tag>';
-  }
-
-  final inner = children.map(
-    (c) => serializeXml(c, indent: indent, depth: depth + 1),
-  );
-  return '$pad<$tag$attrs>\n${inner.join('\n')}\n$pad</$tag>';
 }
 
 // ---- Implementations ----

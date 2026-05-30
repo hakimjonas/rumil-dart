@@ -31,7 +31,28 @@ Parser<JsonValue> _buildTypedJsonParser() {
         return JsonDouble(double.parse(s));
       });
 
-  final jsonStringContent = (char('\\') & any() | char('"').neg()).star();
+  // Decode escape sequences (like rumil does) so the produced JsonValue is
+  // genuinely output-equal on inputs containing escapes — required for a fair
+  // engine-vs-engine comparison, not just on escape-free inputs.
+  final escape =
+      (char('\\') &
+              (char('"').map((_) => '"') |
+                  char('\\').map((_) => '\\') |
+                  char('/').map((_) => '/') |
+                  char('b').map((_) => '\b') |
+                  char('f').map((_) => '\f') |
+                  char('n').map((_) => '\n') |
+                  char('r').map((_) => '\r') |
+                  char('t').map((_) => '\t') |
+                  (char('u') & pattern('0-9a-fA-F').times(4).flatten()).map(
+                    (dynamic v) => String.fromCharCode(
+                      int.parse((v as List)[1] as String, radix: 16),
+                    ),
+                  )))
+          .map<String>((dynamic v) => (v as List)[1] as String);
+
+  final jsonStringContent =
+      (escape | char('"').neg().map<String>((dynamic c) => c as String)).star();
 
   final jsonStringRaw = (char('"') & jsonStringContent & char('"')).map<String>(
     (List<dynamic> seq) => (seq[1] as List<dynamic>).join(),

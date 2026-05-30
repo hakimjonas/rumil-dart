@@ -1,3 +1,13 @@
+## 0.10.0
+
+Dependency constraint bumped to `rumil: ^0.10.0`; version aligned with
+the rumil-dart family 0.10.0 release. No source changes in this package,
+but it inherits two changes from the core 0.10.0 interpreter: deeply
+parenthesized expressions (`(((…)))`) now parse stack-safe to memory
+rather than overflowing the native stack at moderate nesting depth, and
+expression parsing is about 2× faster (AOT/JIT/Wasm). The 57-test suite
+passes unchanged on the new core.
+
 ## 0.7.0
 
 - **Parser migrated from a six-layered `chainl1` ladder to a single

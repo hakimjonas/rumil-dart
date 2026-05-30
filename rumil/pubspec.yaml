@@ -3,7 +3,7 @@ description: >-
   Parser combinators for Dart with left recursion, stack-safe trampolining,
   typed errors, and lossless green/red syntax trees with resilient parsing
   and incremental reparse.
-version: 0.9.0
+version: 0.10.0
 repository: https://github.com/hakimjonas/rumil-dart
 topics:
   - parser

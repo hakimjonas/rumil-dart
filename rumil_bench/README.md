@@ -13,6 +13,7 @@ measurement.
 
 | Binary                       | What it measures                                        |
 |------------------------------|---------------------------------------------------------|
+| `bench_petit_turf.dart`      | Fair rumil vs petitparser vs `dart:convert` (to-typed + to-native, output verified equal). |
 | `bench_json.dart`            | JSON parsing: rumil vs petitparser (raw + typed).       |
 | `bench_json_perf_pass.dart`  | rumil_parsers JSON perf-pass: int / float / mixed.      |
 | `bench_expr.dart`            | rumil_expressions vs petitparser: expression eval.      |

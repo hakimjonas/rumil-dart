@@ -264,6 +264,38 @@ final class Zip<E, A, B> extends Parser<E, (A, B)> {
   }
 }
 
+/// Sequences [left] then [right], keeping ONLY [right]'s value (`a.skipThen(b)`).
+///
+/// A fused alternative to `Zip(left, right).map((p) => p.$2)`: the interpreter
+/// runs both and returns the right value directly, never allocating the `(a, b)`
+/// record nor a discarding `Mapped`. This is the dominant token shape in real
+/// grammars (every `_lex`-wrapped atom, structural separators), so eliminating
+/// the per-token record + map frame is the highest-frequency dispatch/alloc win.
+final class SkipLeft<E, A, B> extends Parser<E, B> {
+  /// The parser whose value is discarded.
+  final Parser<E, A> left;
+
+  /// The parser whose value is kept.
+  final Parser<E, B> right;
+
+  /// Creates a skip-left sequence.
+  const SkipLeft(this.left, this.right);
+}
+
+/// Sequences [left] then [right], keeping ONLY [left]'s value (`a.thenSkip(b)`).
+///
+/// The fused counterpart to [SkipLeft]; see its doc. Avoids the record + map.
+final class SkipRight<E, A, B> extends Parser<E, A> {
+  /// The parser whose value is kept.
+  final Parser<E, A> left;
+
+  /// The parser whose value is discarded.
+  final Parser<E, B> right;
+
+  /// Creates a skip-right sequence.
+  const SkipRight(this.left, this.right);
+}
+
 // ---------------------------------------------------------------------------
 // Alternation
 // ---------------------------------------------------------------------------
@@ -327,6 +359,15 @@ final class Many<E, A> extends Parser<E, List<A>> {
   Result<E, List<A>> interpretWith(
     Result<E, List<T>> Function<T>(Parser<E, T>) interpret,
   ) => interpret<A>(parser);
+
+  /// Rebuild a type-erased accumulator into a correctly-typed `List<A>`.
+  ///
+  /// The trampoline accumulates elements into a `List<Object?>` (it has no
+  /// static element type during the erased drive); this reifies the element
+  /// type `A` from the node so downstream `Mapped`/`FlatMap` casts that expect
+  /// a `List<A>` succeed. Dart reifies generics, so the list's runtime element
+  /// type must be exactly `A`.
+  List<Object?> buildList(List<Object?> xs) => List<A>.from(xs);
 }
 
 /// Matches [parser] one or more times.
@@ -341,6 +382,10 @@ final class Many1<E, A> extends Parser<E, List<A>> {
   Result<E, List<A>> interpretWith(
     Result<E, List<T>> Function<T>(Parser<E, T>) interpret,
   ) => interpret<A>(parser);
+
+  /// Rebuild a type-erased accumulator into a correctly-typed `List<A>`.
+  /// See [Many.buildList].
+  List<Object?> buildList(List<Object?> xs) => List<A>.from(xs);
 }
 
 /// Matches [parser] zero or more times, discarding results.
@@ -378,6 +423,31 @@ final class Chainl1<E, A> extends Parser<E, A> {
     Result<E, T> Function<T>(Parser<E, T> p, Parser<E, T Function(T, T)> op)
     run,
   ) => run<A>(p, op);
+
+  /// The element parser, with its result type erased — an "erased view" the
+  /// trampoline descends into (it drives sub-parses untyped). This is a
+  /// cast-free *covariant value-type* upcast (`Parser<E, A>` → `Parser<E,
+  /// Object?>`), not a function-type erasure: handing a child parser to the
+  /// driver is how every combinator descends. Destructuring `:final op`
+  /// instead would impose a *contravariant* function-type cast that a typed
+  /// combiner fails; this getter never casts.
+  Parser<E, Object?> get elementParser => p;
+
+  /// The operator parser, result type erased. See [elementParser].
+  Parser<E, Object?> get opParser => op;
+
+  /// Fold one chain step at the erased-driver boundary: apply the parsed
+  /// [combiner] (a `Function` value the trampoline holds as `Object?`) to the
+  /// erased operands [l] and [r], returning the combined value as `Object?`.
+  ///
+  /// All three `as` casts are confined here, where [A] is in scope and reified
+  /// from this node's runtime type, so they are self-evidently sound. The
+  /// combiner is a *parsed value* (not a node field), so unlike a Pratt
+  /// operator the node cannot apply itself — it instead casts the combiner to
+  /// its true `A Function(A, A)` shape and invokes it. Same boundary discipline
+  /// as `FlatMap.applyF`; replaces a `// ignore: avoid_dynamic_calls` site.
+  Object? combineStep(Object? combiner, Object? l, Object? r) =>
+      (combiner as A Function(A, A))(l as A, r as A);
 }
 
 /// Right-associative binary operator chain: `p (op p)*` folded as
@@ -401,6 +471,17 @@ final class Chainr1<E, A> extends Parser<E, A> {
     Result<E, T> Function<T>(Parser<E, T> p, Parser<E, T Function(T, T)> op)
     run,
   ) => run<A>(p, op);
+
+  /// The element parser, result type erased. See [Chainl1.elementParser].
+  Parser<E, Object?> get elementParser => p;
+
+  /// The operator parser, result type erased. See [Chainl1.elementParser].
+  Parser<E, Object?> get opParser => op;
+
+  /// Fold one chain step at the erased-driver boundary. See
+  /// [Chainl1.combineStep].
+  Object? combineStep(Object? combiner, Object? l, Object? r) =>
+      (combiner as A Function(A, A))(l as A, r as A);
 }
 
 /// Matches [parser] and returns the consumed input as a string.
@@ -624,6 +705,13 @@ final class PrattPrefix<E, A> {
 
   /// Creates a prefix descriptor.
   const PrattPrefix(this.symbol, this.bp, this.fn);
+
+  /// Apply this prefix operator to its parsed operand at the erased-driver
+  /// boundary. The `as A` cast is confined here, where [A] is in scope and
+  /// reified from this instance's runtime type; reading [fn] out and widening
+  /// it to `dynamic Function(dynamic)` would fail under parameter
+  /// contravariance. Same boundary shape as `FlatMap.applyF`.
+  Object? applyTo(Object? operand) => fn(operand as A);
 }
 
 /// Top-Down Operator Precedence (Pratt) parser node.
@@ -692,4 +780,10 @@ final class Pratt<E, A> extends Parser<E, A> {
     )
     run,
   ) => run<A>(atom, prefixes, getOp, minBp, opTable);
+
+  /// The `getOp` parser with its value type erased, for the erased trampoline
+  /// drive. Reading [getOp] through a `Pratt<dynamic, dynamic>` destructure
+  /// would type it `Parser<dynamic, PrattOp<dynamic>>`, which the loop wants as
+  /// `Parser<dynamic, dynamic>`; this getter upcasts covariantly, no cast.
+  Parser<E, Object?> get getOpErased => getOp;
 }

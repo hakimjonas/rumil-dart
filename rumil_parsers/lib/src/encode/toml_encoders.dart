@@ -4,6 +4,7 @@ library;
 import '../ast/toml.dart';
 import 'encoder.dart';
 import 'escape.dart';
+import 'sink_walk.dart';
 
 // ---- Primitive encoders ----
 
@@ -50,10 +51,24 @@ AstEncoder<A, TomlValue> toTomlTable<A>(
 // ---- Serializer ----
 
 /// Serialize a [TomlDocument] to a TOML string.
+///
+/// Thin wrapper over [serializeTomlTo]; output is byte-for-byte identical.
 String serializeToml(TomlDocument doc) {
-  final sb = StringBuffer();
-  _serializeTable(sb, doc, []);
-  return sb.toString();
+  final buffer = StringBuffer();
+  serializeTomlTo(buffer, doc);
+  return buffer.toString();
+}
+
+/// Serialize a [TomlDocument] into [sink].
+///
+/// Iterative on both recursion axes (see `sink_walk.dart`): the table axis
+/// ([_serializeTableTo] — nested subtables and `[[array.of.tables]]`) and the
+/// inline-value axis ([_serializeValueTo] — inline arrays and inline tables)
+/// each drain an explicit worklist, so deeply-nested documents serialize
+/// without overflowing the Dart call stack. Section ordering (all scalar keys
+/// first, then subtables) and `[[array.of.tables]]` emission are unchanged.
+void serializeTomlTo(StringSink sink, TomlDocument doc) {
+  _serializeTableTo(sink, doc, const []);
 }
 
 String _quoteTomlKey(String key) {
@@ -64,56 +79,124 @@ String _quoteTomlKey(String key) {
 /// Iterates entries twice: inline values first, then subtables. Output
 /// groups all scalars before all table sections, which may differ from
 /// input order.
-void _serializeTable(
-  StringBuffer sb,
-  Map<String, TomlValue> table,
-  List<String> path,
+///
+/// The subtable axis is driven by an explicit worklist rather than recursion.
+/// Each work item is a `(table, path)` pair; expanding it emits the table's
+/// scalar lines immediately, then schedules one child item per subtable /
+/// array-of-tables section in source order, so output is identical to the
+/// recursive walk.
+void _serializeTableTo(
+  StringSink sink,
+  Map<String, TomlValue> rootTable,
+  List<String> rootPath,
 ) {
-  for (final MapEntry(:key, :value) in table.entries) {
-    if (value is TomlTable) continue;
-    if (value is TomlArray && value.elements.every((e) => e is TomlTable)) {
-      continue;
+  final walk = SinkWalk();
+
+  void expand(Map<String, TomlValue> table, List<String> path) {
+    for (final MapEntry(:key, :value) in table.entries) {
+      if (value is TomlTable) continue;
+      if (value is TomlArray && value.elements.every((e) => e is TomlTable)) {
+        continue;
+      }
+      sink.write('${_quoteTomlKey(key)} = ');
+      _serializeValueTo(sink, value);
+      sink.write('\n');
     }
-    sb.writeln('${_quoteTomlKey(key)} = ${_serializeValue(value)}');
-  }
-  for (final MapEntry(:key, :value) in table.entries) {
-    if (value is TomlTable) {
-      final subPath = [...path, key];
-      sb.writeln('');
-      sb.writeln('[${subPath.join('.')}]');
-      _serializeTable(sb, value.pairs, subPath);
-    }
-    if (value is TomlArray && value.elements.every((e) => e is TomlTable)) {
-      for (final element in value.elements) {
+    final steps = <SinkStep>[];
+    for (final MapEntry(:key, :value) in table.entries) {
+      if (value is TomlTable) {
         final subPath = [...path, key];
-        sb.writeln('');
-        sb.writeln('[[${subPath.join('.')}]]');
-        _serializeTable(sb, (element as TomlTable).pairs, subPath);
+        steps.add(() {
+          sink.write('\n[${subPath.join('.')}]\n');
+          expand(value.pairs, subPath);
+        });
+      }
+      if (value is TomlArray && value.elements.every((e) => e is TomlTable)) {
+        for (final element in value.elements) {
+          final subPath = [...path, key];
+          steps.add(() {
+            sink.write('\n[[${subPath.join('.')}]]\n');
+            expand((element as TomlTable).pairs, subPath);
+          });
+        }
       }
     }
+    walk.pushAll(steps);
   }
+
+  expand(rootTable, rootPath);
+  walk.run();
 }
 
-String _serializeValue(TomlValue value) => switch (value) {
-  TomlString(:final value) => '"${escapeToml(value)}"',
-  TomlInteger(:final value) => '$value',
-  TomlFloat(:final value) =>
-    value.isNaN
-        ? 'nan'
-        : value.isInfinite
-        ? (value.isNegative ? '-inf' : 'inf')
-        : '$value',
-  TomlBool(:final value) => '$value',
-  TomlDateTime(:final value) => value.toIso8601String(),
-  TomlLocalDateTime(:final value) => value.toIso8601String(),
-  TomlLocalDate(:final year, :final month, :final day) =>
-    '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
-  TomlLocalTime(:final hour, :final minute, :final second) =>
-    '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}:${second.toString().padLeft(2, '0')}',
-  TomlArray(:final elements) => '[${elements.map(_serializeValue).join(', ')}]',
-  TomlTable(:final pairs) =>
-    '{${pairs.entries.map((e) => '${e.key} = ${_serializeValue(e.value)}').join(', ')}}',
-};
+/// Serialize a single [TomlValue] into [sink].
+///
+/// Iterative on the inline-value axis (see `sink_walk.dart`): inline arrays
+/// and inline tables can nest arbitrarily, so the walk schedules child
+/// emissions rather than recursing.
+void _serializeValueTo(StringSink sink, TomlValue root) {
+  final walk = SinkWalk();
+
+  late final void Function(TomlValue) emit;
+  emit = (TomlValue value) {
+    switch (value) {
+      case TomlString(:final value):
+        sink.write('"${escapeToml(value)}"');
+      case TomlInteger(:final value):
+        sink.write('$value');
+      case TomlFloat(:final value):
+        sink.write(
+          value.isNaN
+              ? 'nan'
+              : value.isInfinite
+              ? (value.isNegative ? '-inf' : 'inf')
+              : '$value',
+        );
+      case TomlBool(:final value):
+        sink.write('$value');
+      case TomlDateTime(:final value):
+        sink.write(value.toIso8601String());
+      case TomlLocalDateTime(:final value):
+        sink.write(value.toIso8601String());
+      case TomlLocalDate(:final year, :final month, :final day):
+        sink.write(
+          '${year.toString().padLeft(4, '0')}-'
+          '${month.toString().padLeft(2, '0')}-'
+          '${day.toString().padLeft(2, '0')}',
+        );
+      case TomlLocalTime(:final hour, :final minute, :final second):
+        sink.write(
+          '${hour.toString().padLeft(2, '0')}:'
+          '${minute.toString().padLeft(2, '0')}:'
+          '${second.toString().padLeft(2, '0')}',
+        );
+      case TomlArray(:final elements):
+        sink.write('[');
+        final steps = <SinkStep>[];
+        for (var i = 0; i < elements.length; i++) {
+          final e = elements[i];
+          if (i > 0) steps.add(() => sink.write(', '));
+          steps.add(() => emit(e));
+        }
+        steps.add(() => sink.write(']'));
+        walk.pushAll(steps);
+      case TomlTable(:final pairs):
+        sink.write('{');
+        final entries = pairs.entries.toList();
+        final steps = <SinkStep>[];
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          if (i > 0) steps.add(() => sink.write(', '));
+          steps.add(() => sink.write('${entry.key} = '));
+          steps.add(() => emit(entry.value));
+        }
+        steps.add(() => sink.write('}'));
+        walk.pushAll(steps);
+    }
+  };
+
+  emit(root);
+  walk.run();
+}
 
 // ---- Implementations ----
 

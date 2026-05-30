@@ -17,3 +17,5 @@ dependencies:
 
 dev_dependencies:
   lints: ^6.0.0
+  petitparser_examples: ^7.0.0
+  vm_service: ^15.2.0

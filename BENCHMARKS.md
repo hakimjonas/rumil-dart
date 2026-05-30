@@ -2,135 +2,223 @@
 
 ## Methodology
 
-Hardware: AMD Ryzen 9 9950X3D 16-Core, 172 GB RAM, Linux 6.18.20
-Dart SDK: 3.11.4 (stable)
-Compilation: `dart compile exe` (AOT native), `dart compile wasm` (WasmGC via Deno 2.7.12)
-Warmup: 100-500 iterations discarded before measurement
-Iterations: 500-100,000 depending on per-op cost (target: 1-10s total)
-Reported: microseconds per operation (μs/op) and MB/s where applicable
+Hardware: AMD Ryzen 9 9950X3D 16-Core, 172 GB RAM, Linux 7.0.3
+Dart SDK: 3.12.0 (stable)
+Execution modes:
+- AOT native (`dart compile exe`)
+- JIT (`dart run`, warmed; steady-state, not cold-start)
+- Wasm (`dart compile wasm`, WasmGC), run under Deno 2.7.14
 
-All benchmarks live in `rumil_bench/bin/`. To reproduce:
+Every parser is warmed on every input before timing. Iterations run from
+100 to 50,000 depending on per-op cost. Each number is the median of
+three separate runs on a quiet system; runs were not executed in
+parallel. Reported in microseconds per operation (μs/op) and MB/s where
+applicable.
+
+Benchmarks live in `rumil_bench/bin/`. To reproduce, e.g.:
 ```bash
-export PATH="/path/to/dart-sdk/bin:$PATH"
 cd rumil_bench
-dart compile exe bin/bench_json.dart -o bench_json && ./bench_json
+# AOT
+dart compile exe bin/bench_petit_turf.dart -o /tmp/turf && /tmp/turf
+# JIT
+dart run bin/bench_petit_turf.dart
+# Wasm (needs Deno)
+dart compile wasm bin/bench_petit_turf.dart -o /tmp/turf.wasm
+deno run --allow-read tool/run_wasm.mjs /tmp/turf.wasm
 ```
+
+0.10.0 changed two things about the numbers below. The engine is about
+2× faster than 0.9.0, from the fused `skipThen`/`thenSkip` nodes and the
+unified CEK trampoline (which removed per-token record allocation and
+per-sub-parse interpreter re-entry). And because those changes help the
+AOT optimizer most, AOT is now the fastest of the three runtimes on most
+workloads, where earlier releases had WasmGC ahead. All numbers below
+are from 0.10.0.
 
 ---
 
 ## Rumil vs petitparser
 
-Same grammars, same inputs. The two libraries make different architectural choices: petitparser uses virtual method dispatch for throughput, Rumil uses a sealed ADT with an external interpreter for inspectability and extensibility.
+Measured with `bench_petit_turf.dart`. Each library runs its own
+idiomatic parser on petitparser's own grammars and inputs; every compared
+pair produces output verified equal at runtime before timing; parsers are
+warmed on every input; and run order is rotated so no parser pays a
+cold-start or first-runner penalty.
 
-### JSON parsing, fair comparison (AOT native, Rumil 0.7.1)
+The two libraries make different choices, so two axes are reported:
 
-Rumil builds typed `JsonValue` AST nodes. To isolate parser dispatch overhead from AST construction cost, petitparser is benchmarked in two modes: returning raw `dynamic` values and building the same `JsonValue` types as Rumil.
+- **to-typed** (engine vs engine): both `parseJson` (Rumil) and a
+  hand-written petitparser grammar build the same typed `JsonValue` AST
+  in one pass. This isolates the parser engine from AST-shape cost.
+- **to-native** (plain `Map`/`List`/`num`): Rumil makes two passes (parse
+  to `JsonValue`, then `jsonToNative`) because it always builds a typed
+  tree first, while petitparser's `JsonDefinition` builds `Map`/`List` in
+  one pass. `dart:convert` is the baseline. This axis reflects the cost
+  if all you want is native data.
 
-| Input          | petit-raw (dynamic) | petit-typed (JsonValue) | Rumil (JsonValue) |
-|----------------|---------------------|-------------------------|-------------------|
-| Small (39 B)   | 2.0 μs              | 2.0 μs                  | 15.9 μs           |
-| Medium (45 KB) | 2.7 ms              | 2.8 ms                  | 22.7 ms           |
-| Large (803 KB) | 45 ms               | 47 ms                   | 256 ms            |
+The to-native axis favors petitparser (Rumil does an extra pass it does
+not), so both are shown rather than one.
 
-AST construction adds 3–6% to petitparser's time. The gap is almost entirely parser dispatch cost.
+### JSON to-typed — engine vs engine (μs/op; both build `JsonValue`)
 
-| Comparison                  | Small | Medium | Large |
-|-----------------------------|-------|--------|-------|
-| Rumil vs petit-raw          | 8.0×  | 8.4×   | 5.7×  |
-| Rumil vs petit-typed (fair) | 8.0×  | 8.0×   | 5.5×  |
+Cell is **rumil / petit**.
 
-The large-input AOT case has now dropped below 6×. Trajectory across versions:
+| Input            |        AOT |        JIT |       Wasm |
+|------------------|-----------:|-----------:|-----------:|
+| array (55 B)     |  6.2 / 3.5 |  8.3 / 3.6 |  8.8 / 4.9 |
+| object (56 B)    |  6.5 / 3.0 |  6.9 / 3.0 |  8.1 / 4.5 |
+| event (636 B)    | 34.6 /29.6 | 34.3 /30.1 | 43.0 /37.7 |
+| donut (476 B)    | 35.9 /28.6 | 38.6 /29.0 | 37.6 /35.2 |
+| large (47.7 KB)  | 3736 /2931 | 3919 /2994 | 4678 /4189 |
 
-| Version | Small AOT | Large AOT | Notes |
-|---------|----------:|----------:|-------|
-| 0.6     |     ~26 × |     ~10 × | Pre-Pratt, pre-`firstCharChoice`. |
-| 0.7.0   |      13 × |      10 × | Pratt, `firstCharChoice`, FIRST-set Or, fast paths. |
-| 0.7.1   |     8.0 × |     5.5 × | Hot/cold split (interpreter dispatch −39 % AOT body). |
+Engine ratio on the large document: AOT 1.27×, JIT 1.31×, Wasm 1.12×. The
+gap is widest on tiny number-dense inputs, where per-parse dispatch
+dominates, and narrowest on sustained throughput.
 
-### Expression evaluation (AOT native, Rumil 0.7.1)
+### JSON to-native — plain `Map`/`List` (μs/op)
 
-| Input             | rumil_expressions | petitparser | Ratio |
-|-------------------|-------------------|-------------|-------|
-| `1 + 2 * 3`       | 6.4 μs            | 0.75 μs     | 8.5×  |
-| `((1+2)*(3+4))+5` | 20.7 μs           | 2.0 μs      | 10.6× |
-| 100-term chain    | 169 μs            | 27 μs       | 6.2×  |
-| 50-deep parens    | 276 μs            | 29 μs       | 9.4×  |
+Cell is **rumil (2-pass) / petit (1-pass) / `dart:convert`**.
 
-### Where the overhead comes from
+| Input            |              AOT |              JIT |             Wasm |
+|------------------|-----------------:|-----------------:|-----------------:|
+| array (55 B)     |   9.2 / 2.3 / 0.2 |   8.6 / 2.1 / 0.2 |   9.4 / 3.8 / 0.3 |
+| object (56 B)    |   8.2 / 2.0 / 0.3 |   7.4 / 2.0 / 0.3 |   8.9 / 3.5 / 0.4 |
+| event (636 B)    |  42.9 /17.4 / 1.9 |  36.6 /16.9 / 1.8 |  45.5 /25.7 / 1.5 |
+| donut (476 B)    |  45.7 /14.7 / 2.1 |  40.3 /14.0 / 2.1 |  40.6 /19.6 / 1.4 |
+| large (47.7 KB)  |  4870 /1492 / 206 |  4306 /1415 / 209 |  5111 /2294 / 122 |
 
-The remaining gap is architectural. Per parser step, Rumil does a trampoline loop iteration (a type check on the current parser), a sealed-class dispatch through the `interpretI` switch (the hot/cold split keeps the hot body small), a `Success`/`Partial`/`Failure` allocation, and a continuation dispatch. Petitparser does one virtual method call.
+To-native ratio on the large document vs petitparser: AOT 3.26×, JIT
+3.04×, Wasm 2.23×. Most of this is the second pass. `dart:convert` is a
+hand-tuned native decoder and is the right choice when you only want
+`Map`/`List`; Rumil is for grammars that benefit from a typed,
+inspectable tree.
 
-### What Rumil offers in exchange
+### CSV (μs/op; both build `List<List<String>>`)
 
-The interpreter architecture costs throughput but buys a different set of properties:
-
-- **Pratt-as-a-combinator for operator precedence.** Atoms and operator symbols are ordinary Rumil parsers, composed into a `pratt(...)` node. The interpreter walks operators iteratively over an explicit frame stack — chain depth lives in heap-allocated frames, not in the Dart call stack. When every operator symbol is a literal prefix, the builder compiles a first-code-unit dispatch table with longest-prefix-first ordering and optional word-boundary or not-followed-by guards for keyword and ambiguity cases. Inspired by Lean 4's Pratt-in-combinators approach (Pratt embedded in the combinator framework, leading/trailing split, first-token dispatch). `rule()` (Warth seed-growth) is still available for directly-left-recursive grammars that don't reduce to a binding-power table.
-- **Stack safety to 10 M steps, verified in CI** — see the dedicated section below.
-- **Typed errors with location.** `ParseError` is a sealed hierarchy carrying line, column, and offset; backtracking branches that fail never construct their error message, thanks to nullable-cache thunks.
-- **Inspectable parsers.** Sealed-ADT nodes can be analyzed and rewritten at construction time — FIRST-set `Or` rewrite, `Capture(Many)` fusion, the RadixNode in `stringChoice`, and the Pratt op-table compilation all use this.
-- **Memoization.** Opt-in via `.memoize`, or automatic via `rule()`.
+| Input            |        AOT |        JIT |       Wasm |
+|------------------|-----------:|-----------:|-----------:|
+| csv-10 (309 B)   | 28.9 /10.3 | 31.8 / 8.9 | 33.0 /13.5 |
+| csv-1000 (40 KB) | 3267 /1304 | 3705 /1135 | 4138 /1756 |
 
 ---
 
-## AOT native vs dart2wasm
+## Expression evaluation
 
-Same benchmarks compiled two ways.
+`bench_expr.dart`. `rumil_expr` is `rumil_expressions`: `pratt(...)` with
+prefix unary, six binary precedence levels, and a ternary on top.
+`pratt-arith` is a bare-arithmetic Pratt parser with no whitespace
+wrappers, included as a no-`_lex` reference. `petit` is petitparser's
+`ExpressionBuilder`.
 
-### JSON parsing (Rumil 0.7.1)
+μs/op:
 
-| Input          | AOT native | WasmGC  | Wasm speedup |
-|----------------|------------|---------|--------------|
-| Small (39 B)   | 15.9 μs    | 5.6 μs  | 2.8× faster  |
-| Medium (45 KB) | 22.7 ms    | 9.3 ms  | 2.4× faster  |
-| Large (803 KB) | 256 ms     | 107 ms  | 2.4× faster  |
+| Input             | rumil_expr (AOT/JIT/Wasm) | pratt-arith | petit |
+|-------------------|--------------------------:|------------:|------:|
+| `1 + 2 * 3`       |        3.2 / 5.2 / 4.2     | 1.6/2.7/2.3 | 0.8/0.8/1.1 |
+| `((1+2)*(3+4))+5` |        8.9 / 13.7 / 11.4   | 4.3/7.0/6.3 | 1.9/1.8/2.6 |
+| 100-term chain    |       110 / 168 / 147      |  38/56/60   | 27/26/44 |
+| 50-deep parens    |       121 / 183 / 172      |  57/89/88   | 29/24/38 |
 
-### Expression evaluation (Rumil 0.7.1)
+`rumil_expr` carries a fixed per-token cost for the full operator table
+and whitespace handling. The `pratt-arith` lane shows that roughly half
+of `rumil_expr`'s time is that wrapper overhead, not the Pratt engine.
+Against petitparser's `ExpressionBuilder`, the full `rumil_expressions`
+is about 4× on AOT and 3.4× on Wasm for simple inputs, narrowing as input
+grows.
 
-| Input             | AOT native | WasmGC  | Wasm speedup |
-|-------------------|------------|---------|--------------|
-| `1 + 2 * 3`       | 6.4 μs     | 3.5 μs  | 1.8× faster  |
-| `((1+2)*(3+4))+5` | 20.7 μs    | 9.1 μs  | 2.3× faster  |
-| 100-term chain    | 169 μs     | 95 μs   | 1.8× faster  |
-| 50-deep parens    | 276 μs     | 128 μs  | 2.2× faster  |
+---
 
-### Fair Wasm comparison (both building JsonValue AST, Rumil 0.7.1)
+## Format parser throughput
 
-| Input          | Rumil (Wasm) | petit-typed (Wasm) | Ratio |
-|----------------|--------------|--------------------|-------|
-| Small (39 B)   | 5.6 μs       | 2.6 μs             | 2.2×  |
-| Medium (45 KB) | 9.3 ms       | 3.8 ms             | 2.4×  |
-| Large (803 KB) | 107 ms       | 63 ms              | 1.7×  |
+`bench_formats.dart`, all eight `rumil_parsers` formats. Time is μs/op
+for sub-millisecond cases and ms/op otherwise; MB/s is AOT, for size
+normalization.
 
-### How Wasm changes the picture
+| Format    | Input                |     AOT |     JIT |    Wasm | AOT MB/s |
+|-----------|----------------------|--------:|--------:|--------:|---------:|
+| JSON      | small (58 B)         |  6.7 μs | 19.0 μs |  8.5 μs |   8.7    |
+| CSV       | 100 rows (5.0 KB)    |  602 μs |  712 μs |  743 μs |   8.3    |
+| CSV       | 1000 rows (98 KB)    | 6.93 ms | 8.07 ms | 9.88 ms |  14.1    |
+| TOML      | config (372 B)       |   78 μs |  101 μs |   90 μs |   4.8    |
+| TOML      | 50 services (5.6 KB) | 1.34 ms | 1.59 ms | 1.55 ms |   4.2    |
+| XML       | 20 elements (3.3 KB) |  768 μs |  811 μs |  805 μs |   4.3    |
+| XML       | 200 elements (39 KB) | 8.57 ms | 9.30 ms | 9.75 ms |   4.5    |
+| YAML      | config (317 B)       |  224 μs |  215 μs |  231 μs |   1.4    |
+| YAML      | 100 services (20 KB) | 11.7 ms | 12.1 ms | 13.0 ms |   1.7    |
+| HCL       | config (303 B)       |   73 μs |   97 μs |   86 μs |   4.2    |
+| HCL       | 50 resources (12 KB) | 2.98 ms | 3.69 ms | 3.71 ms |   4.1    |
+| Proto3    | schema (499 B)       |  104 μs |  129 μs |  123 μs |   4.8    |
+| Proto3    | 50 messages (16 KB)  | 3.17 ms | 3.86 ms | 3.89 ms |   5.0    |
+| Markdown  | README (969 B)       | 1.41 ms | 1.71 ms | 1.33 ms |   0.7    |
+| Markdown  | 20 sections (14 KB)  | 26.2 ms | 30.8 ms | 25.5 ms |   0.6    |
 
-|                     | AOT native | WasmGC  | Change       |
-|---------------------|------------|---------|--------------|
-| Rumil               | 22.7 ms    | 9.3 ms  | 2.4× faster  |
-| Petitparser (typed) | 2.8 ms     | 3.8 ms  | 1.4× slower  |
-| Rumil/petit ratio   | 8.0×       | 2.4×    |              |
+CSV is fastest per byte (simple grammar, no backtracking). Markdown is
+slowest (context-sensitive, two-pass link resolution, emphasis delimiter
+algorithm, heavy backtracking), and is the one format where Wasm runs
+slightly faster than AOT (about 3–6%).
 
-Rumil gets ~2× faster under WasmGC. Petitparser gets ~1.4× slower. The gap narrows from 8.0× (AOT) to 2.4× (Wasm) on this workload — and to 1.7× on the 803 KB input.
+---
 
-Rumil's sealed class hierarchy compiles to WasmGC struct types with `br_on_cast` dispatch, which V8's WasmGC optimizer handles well. The 0.7.1 hot/cold split shrunk the interpreter dispatch hot body from 11 276 → 6 824 bytes (−39 %) AOT, making the optimizer's job easier on both backends. Interpreter optimizations (lazy line/column tracking, nullable error caches, fused `Capture(Many)`) disproportionately benefit WasmGC where write barriers and object sizes are more visible.
+## AOT vs JIT vs Wasm
+
+Earlier releases had WasmGC ahead of AOT for Rumil. In 0.10.0 the order
+changed: the fused `SkipLeft`/`SkipRight` nodes and the unified CEK
+trampoline reduce dispatch and allocation, and the AOT optimizer benefits
+from that more than dart2wasm does, so AOT moved ahead on most workloads.
+Wasm did not regress in absolute terms; AOT gained more.
+
+| Workload (Rumil)                | Wasm / AOT | JIT / AOT |
+|---------------------------------|-----------:|----------:|
+| JSON to-typed, large            |     1.25×  |    1.05×  |
+| Expression, 100-term chain      |     1.33×  |    1.52×  |
+| chainl1, 100 terms              |     1.29×  |    1.43×  |
+| Format suite (typical)          | 1.05–1.43× | 1.0–1.3×  |
+| `rumil_parsers` integer_heavy   |     1.71×  |    1.25×  |
+| Markdown (20 sections)          |     0.97×  |    1.17×  |
+
+(>1 means AOT is faster.) Rumil on Wasm runs about 1.05–1.8× slower than
+on AOT, depending on workload; Markdown is slightly faster on Wasm, and a
+few cases are near parity (YAML config, small XML). This is a modest tax,
+not a large one.
+
+Two things about the WasmGC behavior are worth recording, since they
+bear on whether Rumil fits a Wasm target:
+
+- Rumil's dispatch degrades less under WasmGC than petitparser's does.
+  From AOT to Wasm on the large to-typed document, Rumil slows by 1.25×
+  while petitparser slows by 1.43×. The rumil:petit ratio therefore
+  narrows from 1.27× on AOT to 1.12× on Wasm. Rumil's sealed-ADT
+  `br_on_cast` dispatch maps onto WasmGC more directly than petitparser's
+  virtual dispatch.
+- WasmGC is not a penalty here. `dart:convert`'s native JSON decoder is
+  faster on Wasm than on AOT in these runs (122 vs 206 μs on the large
+  document), and Markdown is faster on Wasm for
+  Rumil. The 0.10.0 reversal is about AOT improving, not Wasm being slow.
 
 ---
 
 ## Left recursion and stack safety
 
-### chainl1 vs hand-rolled Pratt (AOT native, Rumil 0.7.1)
+### chainl1 vs hand-rolled Pratt (μs/op)
 
-| Input      | Rumil chainl1 | Hand-rolled Pratt | Ratio |
-|------------|---------------|-------------------|-------|
-| 3 terms    | 6.3 μs        | 0.15 μs           | 42×   |
-| 10 terms   | 17.6 μs       | 0.58 μs           | 30×   |
-| 100 terms  | 163 μs        | 6.6 μs            | 25×   |
-| 1000 terms | 1 639 μs      | 72 μs             | 23×   |
+`bench_lr.dart`. The hand-rolled Pratt parser is raw Dart, with no parser
+nodes, dispatch, or per-step allocation. It sets a lower bound for an
+interpreter that goes through a sealed-ADT switch and a continuation
+chain.
 
-The hand-rolled Pratt parser is raw Dart: no parser nodes, no dispatch, no allocation per step. It sets a useful ceiling for what an interpreter that goes through a sealed-ADT switch and a continuation stack can hope to reach.
+| Input      | rumil chainl1 (AOT/JIT/Wasm) | manual Pratt |
+|------------|-----------------------------:|-------------:|
+| 3 terms    |          3.3 / 16.8 / 6.8     | 0.14/0.41/0.76 |
+| 10 terms   |         11.3 / 16.6 / 15.6     | 0.57/0.31/1.16 |
+| 100 terms  |          115 / 164 / 148       |  6.5/3.8/12.2  |
+| 1000 terms |         1206 / 1709 / 1649      |  70/43/124     |
 
-### rule(): direct left recursion
+### rule(): direct left recursion (μs/op, AOT)
 
-Rumil parses directly left-recursive grammars without grammar transformation, using the Warth et al. seed-growth algorithm:
+Rumil parses directly left-recursive grammars without grammar
+transformation, using the Warth et al. seed-growth algorithm.
+petitparser's `ExpressionBuilder` does not support this directly; it
+rewrites such grammars into precedence climbing.
 
 ```dart
 // expr -> expr '+' digit | digit  (directly left-recursive)
@@ -140,114 +228,142 @@ final expr = rule(() =>
     digit().map(int.parse));
 ```
 
-| Input                    | rule() time | Result |
-|--------------------------|-------------|--------|
-| `5` (1 term)             | 1.9 μs      | 5      |
-| `1+2+3` (3 terms)        | 4.0 μs      | 6      |
-| `1+2+...+9+0` (10 terms) | 11.3 μs     | 45     |
-| 50 terms                 | 52 μs       | 225    |
+| Input    | AOT  | JIT  | Wasm |
+|----------|-----:|-----:|-----:|
+| 1 term   | 0.6  | 10.8 | 1.4  |
+| 3 terms  | 1.1  | 2.7  | 1.8  |
+| 10 terms | 2.9  | 3.3  | 3.6  |
+| 50 terms | 12.9 | 14.2 | 15.7 |
 
-### Stack safety: memory-bounded, not call-stack-bounded
+### rule() vs chainl1 vs pratt, same grammar (μs/op)
 
-The defunctionalized trampoline keeps the Dart call stack constant regardless of grammar depth or input length. Pratt and the chain combinators interpret iteratively, with pending operations held on a heap-allocated frame stack. The practical ceiling on chain depth is therefore available memory, not the call stack.
+The three strategies are usually written over different grammars, which
+makes them hard to compare directly. `bench_lr_vs_pratt.dart` puts them
+on one grammar (`expr -> expr '+' digit | digit`, a left-associative sum
+of single digits) expressed three ways: `rule()` (Warth seed-growth),
+`chainl1` (the flat left-fold), and `pratt` (the operator-precedence
+table). All three return the same sum on the same input, verified before
+timing. Median μs/op:
 
-`rumil/test/stack_safety_test.dart` exercises every chain primitive at 10 million operands as a CI time-budget regression test (whole suite ~16 s on the reference hardware):
+| Terms |  rule() (AOT/JIT/Wasm) |    chainl1 |      pratt |
+|-------|-----------------------:|-----------:|-----------:|
+| 10    |     2.34 / 3.11 / 2.93 | 0.58/1.00/0.97 | 0.66/0.76/0.83 |
+| 50    |   10.19 / 13.52 / 11.69 | 2.96/4.68/4.36 | 3.35/3.51/3.88 |
+| 100   |   19.92 / 26.79 / 22.31 | 5.91/9.24/8.64 | 6.64/6.99/7.72 |
+| 300   |   57.26 / 80.23 / 65.67 | 17.33/27.97/25.42 | 19.96/21.17/22.82 |
 
-| Construct                                | CI depth     |
-|------------------------------------------|-------------:|
-| `flatMap` chain                          |  10 000 000  |
-| `chainl1` (10 M `+` operands)            |  10 000 000  |
-| `chainr1` (10 M `+` operands)            |  10 000 000  |
-| Pratt left-associative chain             |  10 000 000  |
-| Pratt right-associative chain            |  10 000 000  |
-| Pratt prefix chain (10 M unary minuses)  |  10 000 000  |
+On this grammar `rule()` is the slowest of the three on every runtime
+and size, about 2.9× (AOT, Wasm) to 3.8× (JIT) slower than `pratt` at
+300 terms. Seed-growth memoizes and re-runs a growing seed per position,
+while `chainl1` and `pratt` fold iteratively in one pass. Between the two
+iterative strategies the order depends on the runtime: `chainl1` is
+slightly ahead on AOT (about 1.13×), `pratt` slightly ahead on JIT and
+Wasm (about 0.76× and 0.89×).
 
-The same primitives have also been validated locally at 1 000 000 000 operands (172 GB RAM, JIT with `--old_gen_heap_size=131072`). Run times scale roughly linearly; what gives out at extreme depth is heap, not stack:
+This grammar reduces to a binding-power table, so `pratt` or `chainl1`
+is the better choice for it. `rule()` accepts directly-left-recursive
+grammars written in their natural form, without first rewriting them into
+a precedence table or a fold. For a grammar that does reduce, prefer
+`pratt` or `chainl1`; reach for `rule()` when the grammar does not, for
+example a left-recursive postfix chain with several heterogeneous forms.
+Such a grammar can still be rewritten as a postfix fold, so this is about
+how a grammar is expressed rather than a hard expressivity limit.
 
-| Construct                                | n             | Run time | Notes                                         |
-|------------------------------------------|--------------:|---------:|-----------------------------------------------|
-| `flatMap` chain                          | 1 000 000 000 |   413 s  | No input — pure trampoline + continuation     |
-| `chainl1` (1 B `+`)                      | 1 000 000 000 |   114 s  | 2 GB input string                             |
-| `chainr1` (1 B `+`)                      | 1 000 000 000 |   380 s  | Frame-per-step                                |
-| Pratt left-associative                   | 1 000 000 000 |   104 s  | Fastest of the input-driven cases             |
-| Pratt right-associative                  | 1 000 000 000 |   200 s  | 1 B `_PrattInfixFrame` live at peak           |
-| Pratt prefix (`-` × 1 B)                 | 1 000 000 000 |   153 s  | 1 B `_PrattPrefixFrame` live at peak          |
+`rule()` is the least-used of rumil's three left-recursion strategies and
+the slowest. It may be reconsidered in a future major version, after the
+known left-recursive grammars built on it have a fold-based form. It is
+not going anywhere in the 0.x line.
 
-These extreme-depth runs are not in CI — they take minutes and several gigabytes of memory each. They exist as a periodic sanity check that no future change has accidentally introduced a per-step Dart-recursion path that would only show up past 10 M.
+### Stack safety: memory-bounded on width and nesting
+
+As of 0.10.0 the interpreter is a single eval/apply trampoline (a
+defunctionalized CEK machine) in which every sub-parse re-entry rides a
+heap-allocated continuation chain instead of the Dart call stack. Rumil
+is therefore memory-bounded, not call-stack-bounded, on both axes:
+
+- **Operator width** (flat chains: `1+1+1+…`, `many`, `chainl1`/`chainr1`,
+  Pratt operator runs). Trampolined before 0.10.
+- **Structural nesting** (`[[[…]]]`, `(((…)))`, deeply nested
+  objects/elements, where a parser re-enters itself through a sub-parse).
+  Before 0.10 this recursed on the host stack and overflowed at roughly
+  600–2000 levels. It is now bounded by heap as well. This was an
+  original property of the interpreter, not a regression.
+
+`rumil/test/stack_safety_test.dart` exercises width at 10 million
+operands across every chain primitive (a CI time-budget regression test),
+and nesting at 50,000 levels across the four sub-parse shapes (Pratt
+parenthesized atom, `chainl1` parenthesized operand, self-referential
+`many`, self-referential `zip`), each past the old 600–2000 host-stack
+ceiling:
+
+| Axis    | Construct                                 | CI depth   |
+|---------|-------------------------------------------|-----------:|
+| width   | `flatMap` chain                           | 10 000 000 |
+| width   | `chainl1` / `chainr1` (10 M operands)     | 10 000 000 |
+| width   | Pratt left- / right-assoc / prefix chain  | 10 000 000 |
+| nesting | Pratt with parenthesized atom             |     50 000 |
+| nesting | `chainl1` with parenthesized operand      |     50 000 |
+| nesting | self-referential `many` (`[ v* ]`)        |     50 000 |
+| nesting | self-referential `zip` (`( v )`)          |     50 000 |
+
+The width primitives have also been validated locally at 1,000,000,000
+operands (172 GB RAM, JIT with `--old_gen_heap_size=131072`); run times
+scale roughly linearly, and what gives out at extreme depth is heap, not
+stack. Those runs take minutes and gigabytes each and are not in CI; they
+are a periodic check that no change has reintroduced a per-step
+host-recursion path that would only surface past 10 M.
+
+The one sub-parse that remains host-recursive by design is LR-enabled
+`Memo` (`rule()`, Warth seed-growth), which nests by left-recursion depth
+rather than structural depth.
 
 ---
 
-## Format parser throughput (Rumil 0.7.1)
+## Lazy error construction (μs/op)
 
-### AOT native
+`bench_errors.dart`. The nullable-cache thunk optimization avoids
+constructing error messages for failing alternatives during backtracking.
 
-| Format    | Input                | Time     | Throughput |
-|-----------|----------------------|----------|------------|
-| JSON      | Small (58 B)         | 38 μs    | 1.5 MB/s   |
-| CSV       | 100 rows (5 KB)      | 1.7 ms   | 3.0 MB/s   |
-| CSV       | 1000 rows (98 KB)    | 14.5 ms  | 6.8 MB/s   |
-| TOML      | Config (372 B)       | 229 μs   | 1.6 MB/s   |
-| TOML      | 50 services (5.6 KB) | 4.1 ms   | 1.4 MB/s   |
-| XML       | 20 elements (3.3 KB) | 2.6 ms   | 1.3 MB/s   |
-| XML       | 200 elements (39 KB) | 28 ms    | 1.4 MB/s   |
-| YAML      | Config (317 B)       | 452 μs   | 0.7 MB/s   |
-| YAML      | 100 services (20 KB) | 25 ms    | 0.8 MB/s   |
-| HCL       | Config (303 B)       | 212 μs   | 1.4 MB/s   |
-| HCL       | 50 resources (12 KB) | 8.8 ms   | 1.4 MB/s   |
-| Proto3    | Schema (499 B)       | 365 μs   | 1.4 MB/s   |
-| Proto3    | 50 messages (16 KB)  | 11.3 ms  | 1.4 MB/s   |
-| Markdown  | README (969 B)       | 4.4 ms   | 0.2 MB/s   |
-| Markdown  | 20 sections (14 KB)  | 78 ms    | 0.2 MB/s   |
-
-### WasmGC
-
-| Format    | Input                | Time     | Throughput | vs AOT       |
-|-----------|----------------------|----------|------------|--------------|
-| JSON      | Small (58 B)         | 14.6 μs  | 4.0 MB/s   | 2.6× faster  |
-| CSV       | 100 rows (5 KB)      | 862 μs   | 5.8 MB/s   | 2.0× faster  |
-| CSV       | 1000 rows (98 KB)    | 9.4 ms   | 10.4 MB/s  | 1.5× faster  |
-| TOML      | Config (372 B)       | 120 μs   | 3.1 MB/s   | 1.9× faster  |
-| TOML      | 50 services (5.6 KB) | 2.1 ms   | 2.7 MB/s   | 2.0× faster  |
-| XML       | 20 elements (3.3 KB) | 1.1 ms   | 2.9 MB/s   | 2.3× faster  |
-| XML       | 200 elements (39 KB) | 13 ms    | 3.0 MB/s   | 2.1× faster  |
-| YAML      | Config (317 B)       | 295 μs   | 1.1 MB/s   | 1.5× faster  |
-| YAML      | 100 services (20 KB) | 15 ms    | 1.3 MB/s   | 1.6× faster  |
-| HCL       | Config (303 B)       | 96 μs    | 3.2 MB/s   | 2.2× faster  |
-| HCL       | 50 resources (12 KB) | 4.1 ms   | 3.0 MB/s   | 2.2× faster  |
-| Proto3    | Schema (499 B)       | 169 μs   | 3.0 MB/s   | 2.2× faster  |
-| Proto3    | 50 messages (16 KB)  | 5.3 ms   | 3.0 MB/s   | 2.1× faster  |
-| Markdown  | README (969 B)       | 1.8 ms   | 0.5 MB/s   | 2.5× faster  |
-| Markdown  | 20 sections (14 KB)  | 33 ms    | 0.4 MB/s   | 2.4× faster  |
-
-CSV is fastest (simple grammar, no backtracking). Markdown is slowest (context-sensitive, two-pass link resolution, emphasis delimiter algorithm, heavy backtracking). WasmGC is consistently 1.5–2.6× faster than AOT native across all formats.
-
----
-
-## Lazy error construction (AOT native)
-
-The nullable-cache thunk optimization avoids constructing error messages for failing alternatives during backtracking.
-
-| Scenario                                           | Time               |
-|----------------------------------------------------|--------------------|
-| 20-way Or (last matches)                           | 1.2 μs             |
-| Parse invalid + access errors                      | 3.5 μs             |
-| 100-object array (many failing branches per value) | 1.2 ms (2.2 MB/s)  |
-| 1000-object array                                  | 12 ms (2.5 MB/s)   |
+| Scenario                                       | AOT  | JIT  | Wasm |
+|------------------------------------------------|-----:|-----:|-----:|
+| 20-way Or (last matches)                       | 0.21 | 1.12 | 0.36 |
+| Parse invalid + access errors                  | 1.31 | 2.53 | 1.58 |
+| 100-object array (failing branches per value)  |  322 |  425 |  382 |
+| 1000-object array                              | 3514 | 4357 | 4515 |
 
 ---
 
 ## Summary
 
-As of 0.7.1, Rumil is 5.5–10× slower than petitparser on AOT native and 1.7–3.2× slower on WasmGC, depending on input size and grammar shape. The trajectory is consistently downward: 0.6 was 10–13× on AOT, 0.7.0 was 6–10×, 0.7.1 is 5.5–10× — and on the largest JSON input the AOT gap has dropped below 6×. WasmGC has narrowed from 3–4.4× in 0.7.0 to 1.7–3.2× in 0.7.1.
+As of 0.10.0, Rumil parses within about 1.1–1.3× of petitparser building
+the same typed AST, and about 2.2–3.3× on plain native `Map`/`List`
+output, where it makes a second conversion pass petitparser does not.
+Across versions the AOT gap has come down from 10–13× in 0.6 and 5.5–10×
+in 0.7.1; the 0.10.0 fusion and unified trampoline account for most of
+the recent change. AOT is the fastest runtime in 0.10.0, Wasm runs about
+1.05–1.8× behind it (Markdown excepted), and JIT sits between.
 
-That is the cost of the sealed-ADT interpreter architecture. In return:
+This is the cost of the sealed-ADT interpreter. In exchange:
 
-- Pratt-as-a-combinator for operator precedence, with iterative interpretation and a first-code-unit dispatch table; `rule()` (Warth seed-growth) is also available for directly-left-recursive grammars that don't reduce to a binding-power table.
-- Memory-bounded stack safety: chain depth lives on heap-allocated frame stacks, not the Dart call stack. Every chain primitive is exercised at 10 M operands in CI and validated to 1 B locally.
-- Typed errors with line/column/offset and lazy construction on backtracking.
-- Inspectable parsers, with construction-time rewrites (FIRST-set `Or`, `Capture(Many)` fusion, RadixNode for `stringChoice`).
-- Memoization, both opt-in and automatic via `rule()`.
+- **Pratt-as-a-combinator** for operator precedence: atoms and operator
+  symbols are ordinary parsers, walked iteratively over a heap frame
+  stack, with a first-code-unit dispatch table when symbols are literal
+  prefixes. `rule()` (Warth seed-growth) handles directly-left-recursive
+  grammars that do not reduce to a binding-power table.
+- **Memory-bounded stack safety on width and nesting**: chain depth and
+  structural nesting live on heap frames, not the Dart call stack. Width
+  is exercised at 10 M operands and validated to 1 B; nesting at 50 K
+  levels, in CI.
+- **Typed errors** with line/column/offset, constructed lazily on
+  backtracking.
+- **Inspectable parsers** with construction-time rewrites (FIRST-set
+  `Or`, `Capture(Many)` fusion, RadixNode for `stringChoice`, Pratt
+  op-table compilation, `skipThen`/`thenSkip` to `SkipLeft`/`SkipRight`).
+- **Memoization**, opt-in via `.memoize` or automatic via `rule()`.
+- A **lossless green/red syntax-tree layer** (0.9.0) for language
+  tooling, on the same primitives.
 
-WasmGC is consistently 1.5–2.6× faster than AOT native for Rumil. The interpreter optimizations — lazy line/column tracking, nullable error caches, fused `Capture(Many)`, and the 0.7.1 hot/cold dispatch split — disproportionately benefit WasmGC, where write barriers and per-object size are explicit costs the runtime cannot hide behind JIT speculation.
-
-For maximum throughput on fixed formats, `dart:convert` and handwritten parsers will always be faster. Rumil is for grammars that benefit from combinator composition, precise error reporting, or stack-safety guarantees that scale into the millions.
+For maximum throughput on a fixed format, `dart:convert` and handwritten
+parsers will be faster. Rumil is for grammars that benefit from
+combinator composition, error reporting with location, an
+inspectable or lossless tree, or stack safety at depth.

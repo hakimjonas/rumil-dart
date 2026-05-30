@@ -3,6 +3,7 @@ library;
 
 import '../ast/json.dart';
 import 'decoder.dart';
+import 'iterative.dart';
 
 // ---- Primitive decoders ----
 
@@ -96,33 +97,66 @@ final class _JsonBool implements AstDecoder<JsonValue, bool> {
   };
 }
 
-final class _JsonList<A> implements AstDecoder<JsonValue, List<A>> {
+/// Iterative (composite) decoders carry the reified element-type cast inside
+/// the typed class so the erased [decodeIterative] driver stays stack-safe to
+/// arbitrary nesting depth. `decode` keeps its direct recursive form for the
+/// shallow case and delegates to the driver, casting the erased result back to
+/// the declared type at the one confined boundary.
+final class _JsonList<A>
+    implements AstDecoder<JsonValue, List<A>>, IterativeDecoder<JsonValue> {
   final AstDecoder<JsonValue, A> _element;
   const _JsonList(this._element);
   @override
-  List<A> decode(JsonValue value) => switch (value) {
-    JsonArray(:final elements) => elements.map(_element.decode).toList(),
+  List<A> decode(JsonValue value) =>
+      decodeIterative<JsonValue>(this, value) as List<A>;
+  @override
+  (List<(AstDecoder<JsonValue, Object?>, JsonValue)>, Reassemble) expand(
+    JsonValue value,
+  ) => switch (value) {
+    JsonArray(:final elements) => (
+      [for (final e in elements) (_element, e)],
+      (results) => results.cast<A>(),
+    ),
     _ => throw DecodeException('Expected array, got ${value.runtimeType}'),
   };
 }
 
-final class _JsonNullable<A> implements AstDecoder<JsonValue, A?> {
+final class _JsonNullable<A>
+    implements AstDecoder<JsonValue, A?>, IterativeDecoder<JsonValue> {
   final AstDecoder<JsonValue, A> _inner;
   const _JsonNullable(this._inner);
   @override
-  A? decode(JsonValue value) => switch (value) {
-    JsonNull() => null,
-    _ => _inner.decode(value),
+  A? decode(JsonValue value) => decodeIterative<JsonValue>(this, value) as A?;
+  @override
+  (List<(AstDecoder<JsonValue, Object?>, JsonValue)>, Reassemble) expand(
+    JsonValue value,
+  ) => switch (value) {
+    JsonNull() => (const [], (_) => null),
+    _ => ([(_inner, value)], (results) => results[0] as A),
   };
 }
 
-final class _JsonMap<A> implements AstDecoder<JsonValue, Map<String, A>> {
+final class _JsonMap<A>
+    implements
+        AstDecoder<JsonValue, Map<String, A>>,
+        IterativeDecoder<JsonValue> {
   final AstDecoder<JsonValue, A> _value;
   const _JsonMap(this._value);
   @override
-  Map<String, A> decode(JsonValue value) => switch (value) {
-    JsonObject(:final fields) => fields.map(
-      (k, v) => MapEntry(k, _value.decode(v)),
+  Map<String, A> decode(JsonValue value) =>
+      decodeIterative<JsonValue>(this, value) as Map<String, A>;
+  @override
+  (List<(AstDecoder<JsonValue, Object?>, JsonValue)>, Reassemble) expand(
+    JsonValue value,
+  ) => switch (value) {
+    JsonObject(:final fields) => (
+      [for (final v in fields.values) (_value, v)],
+      (results) {
+        final keys = fields.keys.toList();
+        return <String, A>{
+          for (var i = 0; i < keys.length; i++) keys[i]: results[i] as A,
+        };
+      },
     ),
     _ => throw DecodeException('Expected object, got ${value.runtimeType}'),
   };

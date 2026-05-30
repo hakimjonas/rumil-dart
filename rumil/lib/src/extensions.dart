@@ -43,11 +43,11 @@ extension ParserOps<E, A> on Parser<E, A> {
 
   /// Run this parser then [other], keeping only the left result.
   Parser<E, A> thenSkip(Parser<E, Object?> other) =>
-      Zip<E, A, Object?>(this, other).map((pair) => pair.$1);
+      SkipRight<E, A, Object?>(this, other);
 
   /// Run this parser then [other], keeping only the right result.
   Parser<E, B> skipThen<B>(Parser<E, B> other) =>
-      Zip<E, A, B>(this, other).map((pair) => pair.$2);
+      SkipLeft<E, A, B>(this, other);
 
   /// Try this parser; on failure, try [other].
   Parser<E, A> or(Parser<E, A> other) => Or<E, A>(this, other);

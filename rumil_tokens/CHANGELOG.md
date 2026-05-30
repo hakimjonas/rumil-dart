@@ -1,3 +1,12 @@
+## 0.10.0
+
+Dependency constraint bumped to `rumil: ^0.10.0`; version aligned with
+the rumil-dart family 0.10.0 release (jumping 0.1.0 → 0.10.0 to join
+lockstep — this is the version of `rumil_tokens` built on the 0.10.0
+core). No source changes. The tokenizer is a flat lexer, so the core's
+structural-nesting stack-safety fix doesn't apply to it, but it inherits
+the ~2× faster parse engine. The 207-test suite passes unchanged.
+
 ## 0.1.0
 
 First public release. Lossless source code tokenizer built on Rumil

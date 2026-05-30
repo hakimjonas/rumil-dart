@@ -29,6 +29,17 @@ final class PrattOpInfix<A> extends PrattOp<A> {
 
   /// Creates an infix operator descriptor.
   const PrattOpInfix(this.lbp, this.rbp, this.combine);
+
+  /// Combine the left and right values at the erased-driver boundary.
+  ///
+  /// The interpreter drives Pratt at `A = dynamic`, so it holds the operands as
+  /// `Object?`. This operator *applies itself*: the `as A` casts live here,
+  /// where [A] is statically in scope and reified from this instance's runtime
+  /// type, so they are self-evidently sound. Reading [combine] out and widening
+  /// it to `dynamic Function(dynamic, dynamic)` instead would fail — a typed
+  /// combiner like `int Function(int, int)` is not assignable under parameter
+  /// contravariance. This is the same boundary shape as `FlatMap.applyF`.
+  Object? combineWith(Object? l, Object? r) => combine(l as A, r as A);
 }
 
 /// Postfix operator: binds to the accumulated LHS, no RHS needed.
@@ -41,6 +52,10 @@ final class PrattOpPostfix<A> extends PrattOp<A> {
 
   /// Creates a postfix operator descriptor.
   const PrattOpPostfix(this.bp, this.apply);
+
+  /// Apply this postfix operator to the accumulated LHS at the erased-driver
+  /// boundary. The `as A` cast is confined here; see [PrattOpInfix.combineWith].
+  Object? applyTo(Object? x) => apply(x as A);
 }
 
 /// Post-prefix guard applied before committing to an operator match.
