@@ -1,3 +1,9 @@
+## 0.10.0
+
+- Dependency constraints bumped to `rumil_codec: ^0.10.0`,
+  `rumil_parsers: ^0.10.0`. Version aligned with the rumil-dart family
+  0.10.0 release. No functional changes in this package.
+
 ## 0.7.0
 
 - Depends on `rumil_codec: ^0.7.0`, `rumil_parsers: ^0.7.0`. Version

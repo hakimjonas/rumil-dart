@@ -1,3 +1,9 @@
+## 0.10.0
+
+Version aligned with the rumil-dart family 0.10.0 release. No functional
+changes in this package — `rumil_codec` is the standalone binary codec and
+depends on no other rumil package, so it carries the family version only.
+
 ## 0.7.0
 
 Version aligned with the rumil-dart monorepo 0.7.0 release. No

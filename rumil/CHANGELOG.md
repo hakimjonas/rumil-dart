@@ -1,3 +1,51 @@
+## 0.10.0
+
+**Stack-safe to memory on *nesting* as well as *width*, and ~2× faster.**
+This release closes a stack-safety gap that had been present since the
+first interpreter and makes the parse engine substantially faster — both
+through one change: the interpreter is now a single eval/apply
+trampoline (a defunctionalized CEK machine) where *every* sub-parse
+re-entry rides a heap-allocated continuation chain instead of the Dart
+call stack. Additive on the public surface; all 0.7–0.9 parsers,
+combinators, and trees are unchanged. The family moves to 0.10.0 in
+lockstep.
+
+### Fixed — structural-nesting stack safety
+
+- **Deeply *nested* grammars are now stack-safe to memory, not just
+  deeply *wide* ones.** Previously the trampoline only flattened the
+  `flatMap`/`map`/`zip` spine (flat repetition — verified to 1 billion
+  operands), but every other sub-parse (`Or`, `many`/`many1`/`skipMany`,
+  `choice`, `optional`, `capture`, `chainl1`/`chainr1`, Pratt's atom,
+  and a recursive grammar reached via `defer`) re-entered the
+  interpreter on the native call stack. So structurally-nested input —
+  `[[[…]]]`, `(((…)))`, deeply nested objects — overflowed at roughly
+  600–2000 levels. This was an original property of the interpreter, not
+  a regression. The unified trampoline drives all of these through the
+  continuation chain, so nesting depth is now bounded by heap, like
+  width. The one sub-parse that remains host-recursive by design is
+  LR-enabled `Memo` (`rule()`, Warth seed-growth), which nests by
+  left-recursion depth, not structural depth.
+
+### Performance
+
+- **~2× faster across the board** (AOT, JIT, and Wasm), from the unified
+  trampoline removing per-sub-parse interpreter re-entry, plus a fused
+  `skipThen`/`thenSkip`: these no longer desugar to `zip(a,b).map(pick)`
+  (which allocated a record per token and a discarding map), but to
+  dedicated `SkipLeft`/`SkipRight` nodes that keep one value with no
+  record and no map. On a measured AOT JSON parse this fusion alone is
+  ~2.7×; the engine now parses within ~1.1× (Wasm) to ~1.25× (AOT) of
+  petitparser building the same typed AST, measured fairly on
+  petitparser's own grammar and inputs.
+
+### Internal
+
+- The interpreter's type-erased driver was consolidated onto one
+  principled boundary: every node hands typed work to the erased driver
+  through a method that confines the `as A` cast inside the typed class
+  (the `FlatMap.applyF` shape), rather than ad-hoc casts at call sites.
+
 ## 0.9.0
 
 **Lossless syntax trees, resilient parsing, and incremental reparse —
