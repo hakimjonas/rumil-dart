@@ -3,6 +3,7 @@ library;
 
 import '../ast/toml.dart';
 import 'decoder.dart';
+import 'iterative.dart';
 
 // ---- Primitive decoders ----
 
@@ -87,12 +88,25 @@ final class _TomlDateTime implements AstDecoder<TomlValue, DateTime> {
   };
 }
 
-final class _TomlList<A> implements AstDecoder<TomlValue, List<A>> {
+/// Iterative (composite) decoder: see `_JsonList` in `json_decoders.dart` and
+/// the `decode/iterative.dart` driver. The reified element-type cast is
+/// confined to this typed class so the erased driver stays stack-safe to
+/// arbitrary array-nesting depth.
+final class _TomlList<A>
+    implements AstDecoder<TomlValue, List<A>>, IterativeDecoder<TomlValue> {
   final AstDecoder<TomlValue, A> _element;
   const _TomlList(this._element);
   @override
-  List<A> decode(TomlValue value) => switch (value) {
-    TomlArray(:final elements) => elements.map(_element.decode).toList(),
+  List<A> decode(TomlValue value) =>
+      decodeIterative<TomlValue>(this, value) as List<A>;
+  @override
+  (List<(AstDecoder<TomlValue, Object?>, TomlValue)>, Reassemble) expand(
+    TomlValue value,
+  ) => switch (value) {
+    TomlArray(:final elements) => (
+      [for (final e in elements) (_element, e)],
+      (results) => results.cast<A>(),
+    ),
     _ => throw DecodeException('Expected array, got ${value.runtimeType}'),
   };
 }

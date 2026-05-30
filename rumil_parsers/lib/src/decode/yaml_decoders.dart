@@ -3,6 +3,7 @@ library;
 
 import '../ast/yaml.dart';
 import 'decoder.dart';
+import 'iterative.dart';
 
 // ---- Primitive decoders ----
 
@@ -83,35 +84,67 @@ final class _YamlBool implements AstDecoder<YamlValue, bool> {
   };
 }
 
-final class _YamlList<A> implements AstDecoder<YamlValue, List<A>> {
+/// Iterative (composite) decoders: see `_JsonList` in `json_decoders.dart`
+/// and the `decode/iterative.dart` driver. The reified element-type cast is
+/// confined to each typed class so the erased driver stays stack-safe to
+/// arbitrary nesting depth.
+final class _YamlList<A>
+    implements AstDecoder<YamlValue, List<A>>, IterativeDecoder<YamlValue> {
   final AstDecoder<YamlValue, A> _element;
   const _YamlList(this._element);
   @override
-  List<A> decode(YamlValue value) => switch (value) {
-    YamlSequence(:final elements) => elements.map(_element.decode).toList(),
+  List<A> decode(YamlValue value) =>
+      decodeIterative<YamlValue>(this, value) as List<A>;
+  @override
+  (List<(AstDecoder<YamlValue, Object?>, YamlValue)>, Reassemble) expand(
+    YamlValue value,
+  ) => switch (value) {
+    YamlSequence(:final elements) => (
+      [for (final e in elements) (_element, e)],
+      (results) => results.cast<A>(),
+    ),
     _ => throw DecodeException('Expected sequence, got ${value.runtimeType}'),
   };
 }
 
-final class _YamlMap<A> implements AstDecoder<YamlValue, Map<String, A>> {
+final class _YamlMap<A>
+    implements
+        AstDecoder<YamlValue, Map<String, A>>,
+        IterativeDecoder<YamlValue> {
   final AstDecoder<YamlValue, A> _value;
   const _YamlMap(this._value);
   @override
-  Map<String, A> decode(YamlValue value) => switch (value) {
-    YamlMapping(:final pairs) => pairs.map(
-      (k, v) => MapEntry(k, _value.decode(v)),
+  Map<String, A> decode(YamlValue value) =>
+      decodeIterative<YamlValue>(this, value) as Map<String, A>;
+  @override
+  (List<(AstDecoder<YamlValue, Object?>, YamlValue)>, Reassemble) expand(
+    YamlValue value,
+  ) => switch (value) {
+    YamlMapping(:final pairs) => (
+      [for (final v in pairs.values) (_value, v)],
+      (results) {
+        final keys = pairs.keys.toList();
+        return <String, A>{
+          for (var i = 0; i < keys.length; i++) keys[i]: results[i] as A,
+        };
+      },
     ),
     _ => throw DecodeException('Expected mapping, got ${value.runtimeType}'),
   };
 }
 
-final class _YamlNullable<A> implements AstDecoder<YamlValue, A?> {
+final class _YamlNullable<A>
+    implements AstDecoder<YamlValue, A?>, IterativeDecoder<YamlValue> {
   final AstDecoder<YamlValue, A> _inner;
   const _YamlNullable(this._inner);
   @override
-  A? decode(YamlValue value) => switch (value) {
-    YamlNull() => null,
-    _ => _inner.decode(value),
+  A? decode(YamlValue value) => decodeIterative<YamlValue>(this, value) as A?;
+  @override
+  (List<(AstDecoder<YamlValue, Object?>, YamlValue)>, Reassemble) expand(
+    YamlValue value,
+  ) => switch (value) {
+    YamlNull() => (const [], (_) => null),
+    _ => ([(_inner, value)], (results) => results[0] as A),
   };
 }
 

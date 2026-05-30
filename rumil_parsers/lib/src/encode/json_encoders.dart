@@ -4,6 +4,7 @@ library;
 import '../ast/json.dart';
 import 'encoder.dart';
 import 'escape.dart';
+import 'sink_walk.dart';
 
 // ---- Primitive encoders ----
 
@@ -66,55 +67,106 @@ class JsonFormatConfig {
 // ---- Serializer ----
 
 /// Serialize a [JsonValue] to a JSON string.
+///
+/// Thin wrapper over [serializeJsonTo]: buffers into a [StringBuffer] and
+/// returns the result. Output is byte-for-byte identical to the streaming
+/// form; the returned `String` is bounded by available heap (see
+/// [serializeJsonTo] for streaming arbitrarily-large output).
 String serializeJson(
   JsonValue value, {
   JsonFormatConfig config = JsonFormatConfig.compact,
-}) =>
-    config.indent.isEmpty
-        ? _compact(value, config.sortKeys)
-        : _pretty(value, config.indent, config.sortKeys, 0);
+}) {
+  final buffer = StringBuffer();
+  serializeJsonTo(buffer, value, config: config);
+  return buffer.toString();
+}
 
-String _compact(JsonValue value, bool sortKeys) => switch (value) {
-  JsonNull() => 'null',
-  JsonBool(:final value) => '$value',
-  JsonInt(:final value) => '$value',
-  JsonDouble(:final value) => _doubleString(value),
-  JsonString(:final value) => '"${escapeJson(value)}"',
-  JsonArray(:final elements) =>
-    '[${elements.map((e) => _compact(e, sortKeys)).join(',')}]',
-  JsonObject(:final fields) => () {
-    final entries =
-        sortKeys
-            ? (fields.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))
-            : fields.entries;
-    return '{${entries.map((e) => '"${escapeJson(e.key)}":${_compact(e.value, sortKeys)}').join(',')}}';
-  }(),
-};
+/// Serialize a [JsonValue] into [sink].
+///
+/// Iterative (see `sink_walk.dart`): an explicit worklist replaces recursive
+/// descent, so arbitrarily-deep values serialize without overflowing the Dart
+/// call stack. Pretty output (a non-empty [JsonFormatConfig.indent]) emits
+/// `indent * depth` padding at every level, so its total size is Θ(depth²) —
+/// the same as `jq` and `JSON.stringify(_, null, 2)`. Streaming to [sink]
+/// keeps *peak memory* bounded regardless of that total.
+void serializeJsonTo(
+  StringSink sink,
+  JsonValue value, {
+  JsonFormatConfig config = JsonFormatConfig.compact,
+}) {
+  final indent = config.indent;
+  final sortKeys = config.sortKeys;
+  final pretty = indent.isNotEmpty;
+  final walk = SinkWalk();
 
-String _pretty(JsonValue value, String indent, bool sortKeys, int depth) {
-  final pad = indent * depth;
-  final inner = indent * (depth + 1);
-  return switch (value) {
-    JsonNull() => 'null',
-    JsonBool(:final value) => '$value',
-    JsonInt(:final value) => '$value',
-    JsonDouble(:final value) => _doubleString(value),
-    JsonString(:final value) => '"${escapeJson(value)}"',
-    JsonArray(:final elements) =>
-      elements.isEmpty
-          ? '[]'
-          : '[\n${elements.map((e) => '$inner${_pretty(e, indent, sortKeys, depth + 1)}').join(',\n')}\n$pad]',
-    JsonObject(:final fields) => () {
-      final entries =
-          sortKeys
-              ? (fields.entries.toList()
-                ..sort((a, b) => a.key.compareTo(b.key)))
-              : fields.entries;
-      return fields.isEmpty
-          ? '{}'
-          : '{\n${entries.map((e) => '$inner"${escapeJson(e.key)}": ${_pretty(e.value, indent, sortKeys, depth + 1)}').join(',\n')}\n$pad}';
-    }(),
+  // Mutually recursive *in scheduling* only — `emit` never calls `emit`; it
+  // writes this node's own literal text and schedules one step per child.
+  late final void Function(JsonValue, int) emit;
+  emit = (JsonValue node, int depth) {
+    switch (node) {
+      case JsonNull():
+        sink.write('null');
+      case JsonBool(:final value):
+        sink.write(value);
+      case JsonInt(:final value):
+        sink.write(value);
+      case JsonDouble(:final value):
+        sink.write(_doubleString(value));
+      case JsonString(:final value):
+        sink
+          ..write('"')
+          ..write(escapeJson(value))
+          ..write('"');
+      case JsonArray(:final elements):
+        if (elements.isEmpty) {
+          sink.write('[]');
+          return;
+        }
+        final pad = indent * depth;
+        final inner = indent * (depth + 1);
+        sink.write(pretty ? '[\n' : '[');
+        final steps = <SinkStep>[];
+        for (var i = 0; i < elements.length; i++) {
+          final e = elements[i];
+          if (i > 0) steps.add(() => sink.write(pretty ? ',\n' : ','));
+          if (pretty) steps.add(() => sink.write(inner));
+          steps.add(() => emit(e, depth + 1));
+        }
+        steps.add(() => sink.write(pretty ? '\n$pad]' : ']'));
+        walk.pushAll(steps);
+      case JsonObject(:final fields):
+        if (fields.isEmpty) {
+          sink.write('{}');
+          return;
+        }
+        final entries =
+            sortKeys
+                ? (fields.entries.toList()
+                  ..sort((a, b) => a.key.compareTo(b.key)))
+                : fields.entries.toList();
+        final pad = indent * depth;
+        final inner = indent * (depth + 1);
+        sink.write(pretty ? '{\n' : '{');
+        final steps = <SinkStep>[];
+        for (var i = 0; i < entries.length; i++) {
+          final entry = entries[i];
+          if (i > 0) steps.add(() => sink.write(pretty ? ',\n' : ','));
+          if (pretty) steps.add(() => sink.write(inner));
+          steps.add(() {
+            sink
+              ..write('"')
+              ..write(escapeJson(entry.key))
+              ..write(pretty ? '": ' : '":');
+          });
+          steps.add(() => emit(entry.value, depth + 1));
+        }
+        steps.add(() => sink.write(pretty ? '\n$pad}' : '}'));
+        walk.pushAll(steps);
+    }
   };
+
+  emit(value, 0);
+  walk.run();
 }
 
 /// Render a [JsonDouble] value in source-shape-preserving form.
