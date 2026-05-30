@@ -26,6 +26,8 @@
 /// shallow depth by the `serialize_test.dart` / conformance suites.)
 library;
 
+import 'dart:io';
+
 import 'package:rumil/rumil.dart';
 import 'package:rumil_parsers/rumil_parsers.dart';
 import 'package:test/test.dart';
@@ -33,6 +35,18 @@ import 'package:test/test.dart';
 /// Nesting depth for the stress cases. Comfortably past the native Dart
 /// stack limit so any recursion-on-depth regression overflows.
 const int _depth = 100000;
+
+/// Depth for the indented serializers, whose output is Θ(depth²) — at
+/// [_depth] that is ~10^10 sink writes, which is fine on a fast workstation
+/// but times out a 2-core CI runner (the work is quadratic in depth even
+/// though memory stays bounded by the discarding sink). These cases test
+/// stack safety, which only needs a depth well past the native ceiling
+/// (~600–2000 for these shapes), so under CI they run at a smaller depth that
+/// is still far past it; locally they run the full [_depth]. The O(depth)
+/// cases keep [_depth] everywhere. A regression to host-stack recursion
+/// overflows at either depth.
+final int _quadraticDepth =
+    Platform.environment.containsKey('CI') ? 5000 : _depth;
 
 /// A [StringSink] that counts the bytes written and discards them.
 ///
@@ -115,12 +129,12 @@ void main() {
 
     test('serializeJsonTo (pretty) on a deeply-nested object', () {
       JsonValue node = const JsonInt(0);
-      for (var i = 0; i < _depth; i++) {
+      for (var i = 0; i < _quadraticDepth; i++) {
         node = JsonObject({'a': node});
       }
-      // Indented output is Θ(depth²) (tens of GB at this depth) — provably
-      // never materialized: the discarding sink just confirms the walk runs
-      // to full depth without overflowing the stack.
+      // Indented output is Θ(depth²) — provably never materialized: the
+      // discarding sink just confirms the walk runs to full depth without
+      // overflowing the stack. Runs at _quadraticDepth (see its doc).
       final sink = _DiscardSink();
       serializeJsonTo(sink, node, config: JsonFormatConfig.pretty);
       expect(sink.length, greaterThan(0));
@@ -176,10 +190,11 @@ void main() {
 
     test('serializeYamlTo on a deeply-nested mapping', () {
       YamlValue node = const YamlInteger(0);
-      for (var i = 0; i < _depth; i++) {
+      for (var i = 0; i < _quadraticDepth; i++) {
         node = YamlMapping({'a': node});
       }
       // Block-style indentation is Θ(depth²); stream into a discarding sink.
+      // Runs at _quadraticDepth (see its doc).
       final sink = _DiscardSink();
       serializeYamlTo(sink, node);
       expect(sink.length, greaterThan(0));
@@ -243,10 +258,11 @@ void main() {
 
     test('serializeXmlTo on deeply-nested elements', () {
       XmlNode node = const XmlElement(QName('leaf'), [], [XmlText('x')]);
-      for (var i = 0; i < _depth; i++) {
+      for (var i = 0; i < _quadraticDepth; i++) {
         node = XmlElement(QName('e$i'), const [], [node]);
       }
       // Indented element output is Θ(depth²); stream into a discarding sink.
+      // Runs at _quadraticDepth (see its doc).
       final sink = _DiscardSink();
       serializeXmlTo(sink, node);
       expect(sink.length, greaterThan(0));
