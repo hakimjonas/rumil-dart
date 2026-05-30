@@ -392,15 +392,30 @@ final class Chainl1<E, A> extends Parser<E, A> {
     run,
   ) => run<A>(p, op);
 
-  /// The element parser, with its result type erased. Used by the trampoline,
-  /// which drives sub-parses untyped. Reading [op] through a destructuring
-  /// pattern (`Chainl1<dynamic, dynamic>`) would impose a contravariant
-  /// function-type cast that a typed combiner fails; this getter upcasts the
-  /// value type covariantly instead, with no runtime cast.
+  /// The element parser, with its result type erased — an "erased view" the
+  /// trampoline descends into (it drives sub-parses untyped). This is a
+  /// cast-free *covariant value-type* upcast (`Parser<E, A>` → `Parser<E,
+  /// Object?>`), not a function-type erasure: handing a child parser to the
+  /// driver is how every combinator descends. Destructuring `:final op`
+  /// instead would impose a *contravariant* function-type cast that a typed
+  /// combiner fails; this getter never casts.
   Parser<E, Object?> get elementParser => p;
 
   /// The operator parser, result type erased. See [elementParser].
   Parser<E, Object?> get opParser => op;
+
+  /// Fold one chain step at the erased-driver boundary: apply the parsed
+  /// [combiner] (a `Function` value the trampoline holds as `Object?`) to the
+  /// erased operands [l] and [r], returning the combined value as `Object?`.
+  ///
+  /// All three `as` casts are confined here, where [A] is in scope and reified
+  /// from this node's runtime type, so they are self-evidently sound. The
+  /// combiner is a *parsed value* (not a node field), so unlike a Pratt
+  /// operator the node cannot apply itself — it instead casts the combiner to
+  /// its true `A Function(A, A)` shape and invokes it. Same boundary discipline
+  /// as `FlatMap.applyF`; replaces a `// ignore: avoid_dynamic_calls` site.
+  Object? combineStep(Object? combiner, Object? l, Object? r) =>
+      (combiner as A Function(A, A))(l as A, r as A);
 }
 
 /// Right-associative binary operator chain: `p (op p)*` folded as
@@ -430,6 +445,11 @@ final class Chainr1<E, A> extends Parser<E, A> {
 
   /// The operator parser, result type erased. See [Chainl1.elementParser].
   Parser<E, Object?> get opParser => op;
+
+  /// Fold one chain step at the erased-driver boundary. See
+  /// [Chainl1.combineStep].
+  Object? combineStep(Object? combiner, Object? l, Object? r) =>
+      (combiner as A Function(A, A))(l as A, r as A);
 }
 
 /// Matches [parser] and returns the consumed input as a string.
@@ -654,11 +674,12 @@ final class PrattPrefix<E, A> {
   /// Creates a prefix descriptor.
   const PrattPrefix(this.symbol, this.bp, this.fn);
 
-  /// The transform with its type erased to `Function`. The interpreter drives
-  /// Pratt at `A = dynamic`; reading [fn] through a `PrattPrefix<dynamic,
-  /// dynamic>` would impose a `dynamic Function(dynamic)` cast that a typed
-  /// `int Function(int)` fails (parameter contravariance). Invoked dynamically.
-  Function get fnErased => fn;
+  /// Apply this prefix operator to its parsed operand at the erased-driver
+  /// boundary. The `as A` cast is confined here, where [A] is in scope and
+  /// reified from this instance's runtime type; reading [fn] out and widening
+  /// it to `dynamic Function(dynamic)` would fail under parameter
+  /// contravariance. Same boundary shape as `FlatMap.applyF`.
+  Object? applyTo(Object? operand) => fn(operand as A);
 }
 
 /// Top-Down Operator Precedence (Pratt) parser node.

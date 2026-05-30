@@ -34,6 +34,40 @@ Result<E, A> runRecursive<E, A>(Parser<E, A> parser, String input) {
 // ===========================================================================
 // Defunctionalized trampoline
 // ===========================================================================
+//
+// THE ERASED-DRIVER BOUNDARY CONVENTION
+// -------------------------------------
+// The trampoline drives every sub-parse type-erased: the working result is
+// `Result<Object?, Object?>` and `currentParser` is `Parser<dynamic, dynamic>`,
+// so the continuation frames stay non-generic (E/A are recovered once at
+// `_ContEnd`). Dart reifies generics, so a user combiner like
+// `int Function(int, int)` is NOT assignable to `dynamic Function(dynamic,
+// dynamic)` — widening a *typed function* is a contravariant cast that throws.
+//
+// Every place a node hands typed work to this erased driver therefore follows
+// ONE convention: the node exposes a method that takes/returns `Object?` and
+// confines the `as A` cast INSIDE the typed class, where `A` is in scope and
+// reified from the receiver's runtime type (the same shape as
+// `FlatMap.applyF(Object? v) => f(v as A)`). The driver only ever moves
+// `Object?` values and erased child parsers; it never casts or invokes a
+// function whose type it cannot name. Three physical forms of the one rule:
+//
+//   1. Self-applying operator nodes — the operator carries its own typed fn and
+//      applies itself to erased operands: `PrattOpInfix.combineWith`,
+//      `PrattOpPostfix.applyTo`, `PrattPrefix.applyTo`. The frame stores the
+//      OPERATOR NODE, not a bare `Function`.
+//   2. Parsed-combiner fold nodes — the combiner is a parsed *value* (`Object?`)
+//      the node never sees, so the node hands out a bound reifier closure that
+//      casts the combiner to its true `A Function(A, A)` shape inside the typed
+//      class: `Chainl1.combineStep` / `Chainr1.combineStep` (the
+//      `_ChainCombineStep` a chain frame captures at push time).
+//   3. Collection reifiers — rebuild an erased accumulator into the node's real
+//      element type: `Many.buildList` / `Many1.buildList`.
+//
+// Descending into a child parser is NOT erasure: `elementParser` / `opParser` /
+// `getOpErased` are cast-free *covariant value-type* upcasts (`Parser<E, A>` ->
+// `Parser<E, Object?>`), the ordinary way every combinator hands a child to the
+// driver. They carry no function-type cast and no dynamic call.
 
 sealed class _Cont {
   const _Cont();
@@ -241,14 +275,29 @@ final class _ContRecoverCombine extends _Cont {
   );
 }
 
+/// A chain step at the erased-driver boundary: applies the parsed combiner
+/// (held erased as `Object?`) to two erased operands, returning the combined
+/// value. The chain node hands this out at push time ([Chainl1.combineStep] /
+/// [Chainr1.combineStep]); it confines the `as A` casts inside the typed node,
+/// so the driver invokes a combiner with no cast and no dynamic call.
+typedef _ChainCombineStep =
+    Object? Function(Object? combiner, Object? l, Object? r);
+
 /// Awaiting the first element of a `Chainl1`/`Chainr1`. On failure, propagate;
 /// on success, begin the operator loop.
 final class _ContChainFirst extends _Cont {
   final Parser<dynamic, dynamic> p;
   final Parser<dynamic, dynamic> op;
+  final _ChainCombineStep combineStep;
   final bool rightAssoc;
   final _Cont next;
-  const _ContChainFirst(this.p, this.op, this.rightAssoc, this.next);
+  const _ContChainFirst(
+    this.p,
+    this.op,
+    this.combineStep,
+    this.rightAssoc,
+    this.next,
+  );
 }
 
 /// Awaiting an operator in a chain. On failure, restore and finalize; on
@@ -256,21 +305,24 @@ final class _ContChainFirst extends _Cont {
 final class _ContChainOp extends _Cont {
   final Parser<dynamic, dynamic> p;
   final Parser<dynamic, dynamic> op;
+  final _ChainCombineStep combineStep;
   final bool rightAssoc;
-  // chainl1: accumulated lhs. chainr1: collected values/ops for the final fold.
+  // chainl1: accumulated lhs. chainr1: collected values/combiners for the final
+  // fold.
   final Object? lhs;
   final List<Object?>? values;
-  final List<Object?>? ops;
+  final List<Object?>? combiners;
   final int consumed;
   final int snapshot;
   final _Cont next;
   const _ContChainOp(
     this.p,
     this.op,
+    this.combineStep,
     this.rightAssoc,
     this.lhs,
     this.values,
-    this.ops,
+    this.combiners,
     this.consumed,
     this.snapshot,
     this.next,
@@ -281,11 +333,12 @@ final class _ContChainOp extends _Cont {
 final class _ContChainRhs extends _Cont {
   final Parser<dynamic, dynamic> p;
   final Parser<dynamic, dynamic> op;
+  final _ChainCombineStep combineStep;
   final bool rightAssoc;
   final Object? lhs;
   final List<Object?>? values;
-  final List<Object?>? ops;
-  final Object? combine; // the operator's combiner function
+  final List<Object?>? combiners;
+  final Object? combiner; // the operator's parsed combiner (erased)
   final int consumedBeforeOp;
   final int opConsumed;
   final int snapshot;
@@ -293,11 +346,12 @@ final class _ContChainRhs extends _Cont {
   const _ContChainRhs(
     this.p,
     this.op,
+    this.combineStep,
     this.rightAssoc,
     this.lhs,
     this.values,
-    this.ops,
-    this.combine,
+    this.combiners,
+    this.combiner,
     this.consumedBeforeOp,
     this.opConsumed,
     this.snapshot,
@@ -543,18 +597,33 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         currentParser = parser;
         continue eval;
 
-      // Use the erased `elementParser`/`opParser` getters rather than
-      // destructuring `:final op`: destructuring (or an `as Chainl1<dynamic,
-      // dynamic>` cast) imposes a contravariant function-type cast that a typed
-      // combiner like `int Function(int, int)` fails. The getters upcast the
-      // value type covariantly, with no runtime cast.
+      // Descend via the erased `elementParser`/`opParser` views (cast-free
+      // covariant value-type upcasts) and capture the node's `combineStep`
+      // reifier at push time. Destructuring `:final op` (or an `as
+      // Chainl1<dynamic, dynamic>` cast) would instead impose a contravariant
+      // function-type cast that a typed combiner like `int Function(int, int)`
+      // fails. The combiner is a *parsed value*, so the node hands out a bound
+      // `combineStep` closure that confines the `as A` casts inside the typed
+      // class — the driver never casts or dynamic-calls a function itself.
       case Chainl1<dynamic, dynamic>(:final elementParser, :final opParser):
-        cont = _ContChainFirst(elementParser, opParser, false, cont);
+        cont = _ContChainFirst(
+          elementParser,
+          opParser,
+          cp.combineStep,
+          false,
+          cont,
+        );
         currentParser = elementParser;
         continue eval;
 
       case Chainr1<dynamic, dynamic>(:final elementParser, :final opParser):
-        cont = _ContChainFirst(elementParser, opParser, true, cont);
+        cont = _ContChainFirst(
+          elementParser,
+          opParser,
+          cp.combineStep,
+          true,
+          cont,
+        );
         currentParser = elementParser;
         continue eval;
 
@@ -1100,6 +1169,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         case _ContChainFirst(
           :final p,
           :final op,
+          :final combineStep,
           :final rightAssoc,
           :final next,
         ):
@@ -1112,6 +1182,7 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
             cont = _ContChainOp(
               p,
               op,
+              combineStep,
               rightAssoc,
               rightAssoc ? null : value,
               rightAssoc ? <Object?>[value] : null,
@@ -1129,26 +1200,28 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
         case _ContChainOp(
           :final p,
           :final op,
+          :final combineStep,
           :final rightAssoc,
           :final lhs,
           :final values,
-          :final ops,
+          :final combiners,
           :final consumed,
           :final snapshot,
           :final next,
         ):
           if (result case Success<Object?, Object?>(
-            value: final combine,
+            value: final combiner,
             consumed: final opConsumed,
           )) {
             cont = _ContChainRhs(
               p,
               op,
+              combineStep,
               rightAssoc,
               lhs,
               values,
-              ops,
-              combine,
+              combiners,
+              combiner,
               consumed,
               opConsumed,
               snapshot,
@@ -1159,18 +1232,26 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           }
           // No more operators: finalize.
           state.restore(snapshot);
-          result = _finalizeChain(rightAssoc, lhs, values, ops, consumed);
+          result = _finalizeChain(
+            combineStep,
+            rightAssoc,
+            lhs,
+            values,
+            combiners,
+            consumed,
+          );
           cont = next;
           continue apply;
 
         case _ContChainRhs(
           :final p,
           :final op,
+          :final combineStep,
           :final rightAssoc,
           :final lhs,
           :final values,
-          :final ops,
-          :final combine,
+          :final combiners,
+          :final combiner,
           :final consumedBeforeOp,
           :final opConsumed,
           :final snapshot,
@@ -1181,33 +1262,31 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
             :final consumed,
           )) {
             final newConsumed = consumedBeforeOp + opConsumed + consumed;
-            // `combine` is the operator's combiner, statically `Function`.
-            // Invoke it via a dynamic call so its real (covariant) parameter
-            // types are checked at runtime — a static cast to
-            // `Object? Function(Object?, Object?)` would fail on a typed
-            // combiner like `int Function(int, int)` (parameter contravariance).
-            final dynamic fn = combine;
             if (rightAssoc) {
+              // Defer the fold: collect values and parsed combiners, fold right
+              // in `_finalizeChain` once the chain ends.
               values!.add(value);
-              ops!.add(fn);
+              combiners!.add(combiner);
               cont = _ContChainOp(
                 p,
                 op,
+                combineStep,
                 true,
                 null,
                 values,
-                ops,
+                combiners,
                 newConsumed,
                 state.save(),
                 next,
               );
             } else {
+              // Left-fold eagerly through the node's typed boundary method.
               cont = _ContChainOp(
                 p,
                 op,
+                combineStep,
                 false,
-                // ignore: avoid_dynamic_calls
-                fn(lhs, value),
+                combineStep(combiner, lhs, value),
                 null,
                 null,
                 newConsumed,
@@ -1221,10 +1300,11 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
           // rhs failed: finalize with what we have (consumed before the op).
           state.restore(snapshot);
           result = _finalizeChain(
+            combineStep,
             rightAssoc,
             lhs,
             values,
-            ops,
+            combiners,
             consumedBeforeOp,
           );
           cont = next;
@@ -1250,25 +1330,24 @@ Result<E, A> interpretI<E, A>(Parser<E, A> parser, ParserState state) {
 }
 
 /// Finalize a chain accumulation into a [Success]. For chainl1 the [lhs] is
-/// already the left-folded value; for chainr1 the collected [values]/[ops] are
-/// right-folded here.
+/// already the left-folded value; for chainr1 the collected [values]/[combiners]
+/// are right-folded here, each step routed through the node's typed
+/// [combineStep] boundary so the parsed combiners are invoked with no cast and
+/// no dynamic call.
 Result<Object?, Object?> _finalizeChain(
+  _ChainCombineStep combineStep,
   bool rightAssoc,
   Object? lhs,
   List<Object?>? values,
-  List<Object?>? ops,
+  List<Object?>? combiners,
   int consumed,
 ) {
   if (!rightAssoc) return Success<Object?, Object?>(lhs, consumed);
   final vals = values!;
-  final opsL = ops!;
+  final combs = combiners!;
   var acc = vals.last;
   for (var i = vals.length - 2; i >= 0; i--) {
-    // Dynamic call: combiners are stored as `Function` with their real
-    // (covariant) parameter types; a static cast would fail. See _ContChainRhs.
-    final dynamic fn = opsL[i];
-    // ignore: avoid_dynamic_calls
-    acc = fn(vals[i], acc);
+    acc = combineStep(combs[i], vals[i], acc);
   }
   return Success<Object?, Object?>(acc, consumed);
 }
@@ -1809,33 +1888,34 @@ Result<E, void> _skipManyString<E>(String target, ParserState state) {
 
 /// Frame on the Pratt operator stack: a pending operation waiting for the
 /// in-flight nud subparse to produce a value. On completion the frame is
-/// popped and either combined with [savedLhs] (infix) or applied to lhs
-/// alone (prefix). [outerMinBp] is the minBp threshold of the surrounding
-/// scope, restored when the frame pops.
+/// popped and either combined with [_PrattInfixFrame.savedLhs] (infix) or
+/// applied to lhs alone (prefix). [outerMinBp] is the minBp threshold of the
+/// surrounding scope, restored when the frame pops.
 ///
-/// `combine`/`apply` are stored as `Function` (not `A Function(...)`): the
-/// interpreter drives Pratt at `A = dynamic`, and a typed combiner like
-/// `int Function(int, int)` is not assignable to `dynamic Function(dynamic,
-/// dynamic)` (parameter contravariance). They are invoked dynamically in
-/// [_applyFrame].
-sealed class _PrattFrame<A> {
+/// Each frame stores the *operator node itself* ([PrattOpInfix] /
+/// [PrattPrefix]), which applies itself to erased operands through its typed
+/// boundary method ([PrattOpInfix.combineWith] / [PrattPrefix.applyTo]). The
+/// interpreter drives Pratt at `A = dynamic`, so it holds operands as
+/// `Object?`; the `as A` casts live inside the operator node where [A] is in
+/// scope, never on a widened `Function` at the use site. See [_applyFrame].
+sealed class _PrattFrame {
   const _PrattFrame();
   int get outerMinBp;
 }
 
-final class _PrattInfixFrame<A> extends _PrattFrame<A> {
-  final A savedLhs;
-  final Function combine;
+final class _PrattInfixFrame extends _PrattFrame {
+  final Object? savedLhs;
+  final PrattOpInfix<dynamic> op;
   @override
   final int outerMinBp;
-  const _PrattInfixFrame(this.savedLhs, this.combine, this.outerMinBp);
+  const _PrattInfixFrame(this.savedLhs, this.op, this.outerMinBp);
 }
 
-final class _PrattPrefixFrame<A> extends _PrattFrame<A> {
-  final Function apply;
+final class _PrattPrefixFrame extends _PrattFrame {
+  final PrattPrefix<dynamic, dynamic> prefix;
   @override
   final int outerMinBp;
-  const _PrattPrefixFrame(this.apply, this.outerMinBp);
+  const _PrattPrefixFrame(this.prefix, this.outerMinBp);
 }
 
 /// Resumable Pratt (Top-Down Operator Precedence) loop.
@@ -1871,7 +1951,7 @@ class _PrattRun {
   final PrattOpTable<dynamic>? opTable;
   final ParserState state;
 
-  final stack = <_PrattFrame<dynamic>>[];
+  final stack = <_PrattFrame>[];
   int minBp;
   int totalConsumed = 0;
   Object? lhs;
@@ -1922,7 +2002,7 @@ class _PrattRun {
           final snapshot = state.save();
           final r = interpretI<dynamic, Object?>(pre.symbol, state);
           if (r is Success<dynamic, Object?>) {
-            stack.add(_PrattPrefixFrame<dynamic>(pre.fnErased, minBp));
+            stack.add(_PrattPrefixFrame(pre, minBp));
             minBp = pre.bp;
             totalConsumed += r.consumed;
             matchedPrefix = true;
@@ -1973,9 +2053,9 @@ class _PrattRun {
 
         final op = matched.op;
         final prefixLen = matched.prefix.length;
-        // Read combiner/transform via the erased `combineFn`/`applyFn` getters
-        // (destructuring `:final combine` would re-impose the contravariant
-        // function-type cast that a typed combiner fails).
+        // The operator applies itself through its typed boundary method
+        // ([PrattOpInfix.combineWith] / [PrattOpPostfix.applyTo]); the infix
+        // frame stores the operator node, not a widened `Function`.
         switch (op) {
           case PrattOpInfix<dynamic>(:final lbp, :final rbp):
             if (lbp <= minBp) {
@@ -1987,7 +2067,7 @@ class _PrattRun {
             }
             state.advanceN(prefixLen);
             totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
-            stack.add(_PrattInfixFrame<dynamic>(lhs, op.combineFn, minBp));
+            stack.add(_PrattInfixFrame(lhs, op, minBp));
             minBp = rbp;
             lhsValid = false;
             continue;
@@ -2001,8 +2081,7 @@ class _PrattRun {
             }
             state.advanceN(prefixLen);
             totalConsumed += prefixLen + (consumesWs ? _skipAsciiWs(state) : 0);
-            // ignore: avoid_dynamic_calls
-            lhs = op.applyFn(lhs);
+            lhs = op.applyTo(lhs);
         }
       } else {
         final snapshot = state.save();
@@ -2027,7 +2106,7 @@ class _PrattRun {
               return Success<Object?, Object?>(lhs, totalConsumed);
             }
             totalConsumed += opResult.consumed;
-            stack.add(_PrattInfixFrame<dynamic>(lhs, op.combineFn, minBp));
+            stack.add(_PrattInfixFrame(lhs, op, minBp));
             minBp = rbp;
             lhsValid = false;
             continue;
@@ -2041,8 +2120,7 @@ class _PrattRun {
               return Success<Object?, Object?>(lhs, totalConsumed);
             }
             totalConsumed += opResult.consumed;
-            // ignore: avoid_dynamic_calls
-            lhs = op.applyFn(lhs);
+            lhs = op.applyTo(lhs);
         }
       }
     }
@@ -2060,22 +2138,20 @@ class _PrattRun {
 /// Result of applying a single popped frame to the current `lhs`. Returned
 /// as a record so callers can update both the lhs accumulator and the minBp
 /// threshold in one assignment.
-typedef _PoppedFrame<A> = ({A lhs, int outerMinBp});
+typedef _PoppedFrame = ({Object? lhs, int outerMinBp});
 
-/// Combines (infix) or applies (prefix) [frame] to [lhs] and returns the
-/// updated lhs together with the frame's outerMinBp.
-_PoppedFrame<A> _applyFrame<A>(_PrattFrame<A> frame, A lhs) => switch (frame) {
-  // Dynamic invocations: combine/apply are stored as `Function` (see
-  // [_PrattFrame]); their real covariant parameter types are checked at the
-  // call site.
-  _PrattInfixFrame<A>(:final savedLhs, :final combine, :final outerMinBp) => (
-    // ignore: avoid_dynamic_calls
-    lhs: combine(savedLhs, lhs) as A,
+/// Combines (infix) or applies (prefix) [frame] to the erased [lhs] and returns
+/// the updated lhs together with the frame's outerMinBp. Each operator applies
+/// itself through its typed boundary method ([PrattOpInfix.combineWith] /
+/// [PrattPrefix.applyTo]), so the `as A` casts stay inside the operator node —
+/// no widened `Function`, no dynamic call here.
+_PoppedFrame _applyFrame(_PrattFrame frame, Object? lhs) => switch (frame) {
+  _PrattInfixFrame(:final savedLhs, :final op, :final outerMinBp) => (
+    lhs: op.combineWith(savedLhs, lhs),
     outerMinBp: outerMinBp,
   ),
-  _PrattPrefixFrame<A>(:final apply, :final outerMinBp) => (
-    // ignore: avoid_dynamic_calls
-    lhs: apply(lhs) as A,
+  _PrattPrefixFrame(:final prefix, :final outerMinBp) => (
+    lhs: prefix.applyTo(lhs),
     outerMinBp: outerMinBp,
   ),
 };
