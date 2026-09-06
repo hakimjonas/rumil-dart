@@ -1,3 +1,9 @@
+## 0.11.0
+
+Dependency constraint bumped to `rumil: ^0.11.0`; version aligned with the
+rumil-dart family 0.11.0 release. No source changes in this package. The
+tokenizer test suite passes unchanged.
+
 ## 0.10.0
 
 Dependency constraint bumped to `rumil: ^0.10.0`; version aligned with

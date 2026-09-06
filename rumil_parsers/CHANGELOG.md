@@ -1,8 +1,9 @@
-## Unreleased
+## 0.11.0
 
 New format: HOCON (Human-Optimized Config Object Notation), the lightbend/config
-specification. Purely additive — no existing parser or API changes. Ships in
-lockstep with the rumil family's next release.
+specification. Purely additive — no existing parser or API changes. The
+dependency constraint is bumped to `rumil: ^0.11.0` and the version ships in
+lockstep with the rumil-dart family 0.11.0 release.
 
 ### Added — HOCON
 
