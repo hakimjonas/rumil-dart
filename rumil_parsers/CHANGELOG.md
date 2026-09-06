@@ -1,3 +1,76 @@
+## Unreleased
+
+New format: HOCON (Human-Optimized Config Object Notation), the lightbend/config
+specification. Purely additive — no existing parser or API changes. Ships in
+lockstep with the rumil family's next release.
+
+### Added — HOCON
+
+- **`parseHocon(String input) → Result<ParseError, HoconValue>`.** Parses the
+  full HOCON syntax per the normative spec: `#` and `//` comments, optional
+  root braces (an empty file is an empty root object), bracketed root arrays,
+  dotted key path expressions, `=` / `:` / omitted-before-`{` / `+=`
+  separators, JSON-grammar numbers (the raw source slice is preserved so
+  value concatenation re-renders `1E5` as written, not `100000.0`), quoted
+  strings with JSON escapes, triple-quoted strings without escape processing
+  (extra closing quotes are content, per the Scala rule), unquoted strings
+  with the spec's forbidden-character set and initial number/keyword token
+  splitting (`10.0bar` → number `10.0` + string `bar`), same-line value
+  concatenation with the spec's whitespace rules (inner whitespace preserved,
+  edges trimmed), and `include` statements in plain, `required(...)`,
+  `file(...)`, `url(...)`, and `classpath(...)` forms. Plain JSON parses
+  unchanged as a subset.
+
+- **`resolveHocon(HoconValue, {HoconConfig config}) → HoconValue`.** The
+  resolution engine: loads includes (with circular-include detection),
+  expands dotted keys, merges duplicate keys (later wins, objects merge
+  recursively, an intermediate non-object prevents merging), looks up
+  substitutions, and combines concatenations (strings join, objects merge,
+  arrays concatenate, mixed kinds throw `HoconResolveException`).
+  Substitutions **look forward** against the final merged tree (forward
+  references work) with per-instance memoization; **self-referential
+  fields look back** to the value the path had before the current
+  assignment — including paths below it (`${foo.a}` inside an assignment
+  to `foo`), which is what makes `path = ${path} [ /usr/bin ]` and the
+  `+=` desugaring `a = ${?a} [b]` work. `${?path}` optional substitutions
+  omit the object field, drop the array element, or contribute nothing to
+  a concatenation. Paths missing from the tree fall back to
+  `HoconConfig.environment` before being declared undefined. Circular
+  includes and unbreakable substitution cycles (`a : ${b}`, `b : ${a}`;
+  structurally self-containing values like `a : { b : ${a} }`) fail fast
+  with informative diagnostics.
+
+  **Stack safety:** like every value-layer operation in this package, all
+  resolution stages — include loading, tree materialization, substitution
+  resolution, and the AST round-trip — run on explicit worklists with zero
+  call-stack recursion (verified at 100,000 nesting depth and a 10,000-deep
+  substitution-lookup chain in `test/stack_safety_test.dart`).
+
+- **`hoconToNative(HoconValue)`**: converts a *resolved* AST to native Dart
+  values (`Map<String, Object?>`, `List<Object?>`, `String`, `int`,
+  `double`, `bool`, `null`) on the package's standard worklist pattern.
+  Throws `HoconResolveException` with a clear message if handed unresolved
+  nodes — run `resolveHocon` first.
+
+- **`serializeHocon(HoconValue)` / `serializeHoconTo(HoconValue, StringSink)`**:
+  emits standard pretty JSON — which is itself valid HOCON — iteratively
+  over `SinkWalk`, streaming-safe at arbitrary depth.
+
+- **AST types** (`HoconValue` sealed hierarchy: `HoconNull`, `HoconBool`,
+  `HoconInt`, `HoconDouble`, `HoconString`, `HoconArray`, `HoconObject`,
+  `HoconSubstitution`, `HoconConcat`, `HoconInclude`): source-shaped rather
+  than resolved, with `HoconObject` keeping entries as an ordered list so
+  the resolver can look back through assignment history. Structural
+  equality and consistent `hashCode` on every node, matching the family
+  convention.
+
+- **Conformance:** 58/58 spec-example and smoke tests in
+  `test/conformance/hocon_spec_test.dart` (normative examples transcribed
+  from `HOCON.md`, since HOCON has no machine-readable test-suite repo, and
+  a 1,397-line Akka `reference.conf` real-world benchmark) plus 75 unit
+  tests in `test/hocon_test.dart`. See `CONFORMANCE.md` for the HOCON
+  section and known v1 limitations.
+
 ## 0.10.0
 
 The value layer is now stack-safe to memory, and serializers can stream.
