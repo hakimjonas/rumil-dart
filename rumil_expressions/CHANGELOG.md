@@ -1,3 +1,9 @@
+## 0.11.0
+
+Dependency constraint bumped to `rumil: ^0.11.0`; version aligned with the
+rumil-dart family 0.11.0 release. No source changes in this package. The
+test suite passes unchanged on the new core.
+
 ## 0.10.0
 
 Dependency constraint bumped to `rumil: ^0.10.0`; version aligned with

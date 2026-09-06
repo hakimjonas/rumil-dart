@@ -1,3 +1,10 @@
+## 0.11.0
+
+Version aligned with the rumil-dart family 0.11.0 release. No functional
+changes in this package; rumil_parsers 0.11.0 ships the new HOCON format on
+top of this core, and the consumer packages bump their `rumil: ^0.11.0`
+constraints. The 0.10.0 test suite passes unchanged.
+
 ## 0.10.0
 
 Stack-safe to memory on nesting as well as width, and about 2× faster.
