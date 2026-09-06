@@ -372,11 +372,12 @@ void main() {
       expect(sink.length, greaterThan(0));
     });
 
-    test('serializeHoconTo (compact) on a deeply-nested array', () {
-      // The serializer is pretty-only, but compact-shaped output is
-      // O(depth): one bracket pair per level plus the leaf.
+    test('serializeHoconTo on a deeply-nested array', () {
+      // The serializer always indents (pretty-only output), so like the
+      // pretty-JSON/XML cases this is Θ(depth²) work — stream into a
+      // discarding sink and run at _quadraticDepth (see its doc).
       HoconValue node = const HoconInt(0);
-      for (var i = 0; i < _depth; i++) {
+      for (var i = 0; i < _quadraticDepth; i++) {
         node = HoconArray([node]);
       }
       final sink = _DiscardSink();
