@@ -2,7 +2,7 @@
 
 rumil_parsers verifies each parser against the official specification test suite for its format. This document records methodology, results, status, and design plans for all parsers.
 
-Last verified: 2026-04-16.
+Last verified: 2026-09-06.
 
 ## Results
 
@@ -16,6 +16,7 @@ Last verified: 2026-04-16.
 | XML | W3C XML 1.0 5e | [W3C XML Test Suite](https://www.w3.org/XML/Test/) | **1506/1506 (100%)** |
 | HCL | [HashiCorp spec](https://github.com/hashicorp/hcl/blob/main/hclsyntax/spec.md) | specsuite + fuzz + terraform-provider-aws | **2760/2760 (100%)** |
 | Markdown | CommonMark 0.31.2 | [CommonMark spec](https://spec.commonmark.org/0.31.2/) | **652/652 (100%)** |
+| HOCON | [lightbend/config HOCON.md](https://github.com/lightbend/config/blob/master/HOCON.md) | Normative spec examples + Akka `reference.conf` | **58/58 (100%)** + 75 unit |
 
 ---
 
@@ -172,3 +173,27 @@ The parser produces a typed `MdNode` AST with structured fields (`MdHeading.leve
 **Inline-level:** Emphasis and strong emphasis (CommonMark delimiter algorithm per spec section 6.2), links (inline, reference, collapsed, shortcut), images, code spans, autolinks (URI and email), raw inline HTML, hard and soft line breaks, backslash escapes, HTML entity references (2125 named entities + numeric).
 
 **Architecture:** Indentation-aware block parsing via `peekIndent`/`indent(n)` + `flatMap`, parameterized parsers for nested structures, `notFollowedBy` for block boundaries. Tab expansion and input normalization as pre-processing. Two-pass link reference resolution.
+
+---
+
+## HOCON -- 58/58 spec (100%) + 75 unit + 7 stack-safety
+
+**Spec:** [lightbend/config HOCON.md](https://github.com/lightbend/config/blob/master/HOCON.md) (the normative HOCON specification)
+**Suite:** normative examples transcribed from the spec + Akka `reference.conf` real-world benchmark
+**Runner:** `test/conformance/hocon_spec_test.dart` (self-contained, no external clone needed — unlike the suites above, HOCON has no official machine-readable test-suite repository, so the normative `###`-section examples are transcribed verbatim into tests, each named after its spec section)
+
+- Spec examples: 53/53 pass (commas, whitespace rules, unquoted-string tokenization, multi-line strings, path expressions, value concatenation, substitutions incl. self-referential/mutually-referring/hidden cases, `+=`, includes with substitution fixup, duplicate-key merging, root handling)
+- Akka `reference.conf`: 5/5 pass — the shipped 1,397-line Actor reference config parses, resolves (include stub for the generated `version` file, optional self-append `library-extensions`, deep list substitution `allowed-classes`), and converts to native Dart
+- Unit tests: 75/75 in `test/hocon_test.dart` (strings, keys/separators, objects/arrays, comments, substitutions, concatenation, merging, includes, JSON compatibility, serializer round-trip)
+- Stack safety: 7 cases at 100k nesting depth in `test/stack_safety_test.dart` — `hoconToNative` (array + object), `resolveHocon` (deep tree + 10k-deep substitution-lookup chain), `serializeHoconTo`, and a parse→resolve→convert pipeline
+
+**Pipeline:** `parseHocon` (source-shaped AST) → `resolveHocon` (includes, substitutions, concatenation, merging — fully iterative over explicit worklists, zero call-stack recursion) → `hoconToNative` / `serializeHocon`.
+
+**Resolution semantics verified:** look-forward substitution with per-instance memoization; self-referential look-back (including paths below the assigned field, `${foo.a}` inside `foo : …`); optional substitutions omit fields / drop elements / vanish in concatenation; environment fallback keyed by the path as written; duplicate-key merge rules (later wins, objects merge recursively, intermediate non-object prevents merging); circular includes and unbreakable substitution cycles fail fast.
+
+**Supported:** `#` and `//` comments, optional root braces, bracketed root arrays, dotted keys, `=` / `:` / omitted / `+=` separators, quoted + triple-quoted + unquoted strings (forbidden-character set, initial number/keyword splitting, Scala closing-quote rule), JSON number grammar with raw-slice preservation for concatenation, value/object/array concatenation with spec whitespace rules, `include` statements with `required()` / `file()` / `url()` / `classpath()` forms, JSON compatibility.
+
+**Known v1 limitations** (documented in the library docs, none break the transcribed spec examples):
+- Whitespace-concatenated key elements (`a b c : 42` ≡ `"a b c" : 42`) are not supported; use quoted keys.
+- Units/duration/size formats (`10 ms`, `128K`) parse as strings — the spec marks them optional ("implementations may wish").
+- A substitution overridden by *another substitution* (`foo : ${x}` then `foo : ${y}`) resolves to `y`'s value rather than the spec's merged-object form; object-valued overrides over a pending (`foo : { … }` after `foo : ${x}`) do merge correctly.

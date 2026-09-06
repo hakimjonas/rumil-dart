@@ -284,4 +284,123 @@ void main() {
       expect(decoded, isA<List<Object?>>());
     });
   });
+
+  group('HOCON value layer is stack-safe at depth', () {
+    test('hoconToNative on a deeply-nested array', () {
+      HoconValue node = const HoconInt(0);
+      for (var i = 0; i < _depth; i++) {
+        node = HoconArray([node]);
+      }
+      final native = hoconToNative(node);
+      var current = native;
+      var levels = 0;
+      while (current is List) {
+        current = current.first;
+        levels++;
+      }
+      expect(levels, _depth);
+      expect(current, 0);
+    });
+
+    test('hoconToNative on a deeply-nested object', () {
+      HoconValue node = const HoconInt(0);
+      for (var i = 0; i < _depth; i++) {
+        node = HoconObject([
+          HoconAssignment(const ['a'], node),
+        ]);
+      }
+      final native = hoconToNative(node);
+      var current = native;
+      var levels = 0;
+      while (current is Map) {
+        current = current['a'];
+        levels++;
+      }
+      expect(levels, _depth);
+      expect(current, 0);
+    });
+
+    test('resolveHocon on a deeply-nested object', () {
+      HoconValue node = const HoconInt(0);
+      for (var i = 0; i < _depth; i++) {
+        node = HoconObject([
+          HoconAssignment(const ['a'], node),
+        ]);
+      }
+      final resolved = resolveHocon(node);
+      var current = hoconToNative(resolved);
+      var levels = 0;
+      while (current is Map) {
+        current = current['a'];
+        levels++;
+      }
+      expect(levels, _depth);
+      expect(current, 0);
+    });
+
+    test('resolveHocon with a self-referential chain at depth', () {
+      // A flat object whose substitution chain walks k9999 → k9998 →
+      // … → base. Exercises the on-demand lookup continuation chain at
+      // depth without nesting the tree itself.
+      const depth = 10000;
+      final entries = <HoconEntry>[
+        const HoconAssignment(['base'], HoconInt(0)),
+      ];
+      var prev = 'base';
+      for (var i = 0; i < depth; i++) {
+        entries.add(
+          HoconAssignment(['k$i'], HoconSubstitution(prev, optional: false)),
+        );
+        prev = 'k$i';
+      }
+      final resolved = resolveHocon(HoconObject(entries));
+      final native = hoconToNative(resolved) as Map<String, Object?>;
+      expect(native.length, depth + 1);
+      expect(native['k0'], 0);
+      expect(native['k${depth - 1}'], 0);
+    });
+
+    test('serializeHoconTo (pretty) on a deeply-nested object', () {
+      HoconValue node = const HoconInt(0);
+      for (var i = 0; i < _quadraticDepth; i++) {
+        node = HoconObject([
+          HoconAssignment(const ['a'], node),
+        ]);
+      }
+      final sink = _DiscardSink();
+      serializeHoconTo(sink, node);
+      expect(sink.length, greaterThan(0));
+    });
+
+    test('serializeHoconTo on a deeply-nested array', () {
+      // The serializer always indents (pretty-only output), so like the
+      // pretty-JSON/XML cases this is Θ(depth²) work — stream into a
+      // discarding sink and run at _quadraticDepth (see its doc).
+      HoconValue node = const HoconInt(0);
+      for (var i = 0; i < _quadraticDepth; i++) {
+        node = HoconArray([node]);
+      }
+      final sink = _DiscardSink();
+      serializeHoconTo(sink, node);
+      expect(sink.length, greaterThan(0));
+    });
+
+    // Feeds *parsed* input, so depth is bounded by the parser's
+    // nesting ceiling (a rumil-core limit), not the value layer.
+    test(
+      'parse-then-resolve-then-convert pipeline survives reasonable input',
+      () {
+        const pipelineDepth = 200;
+        final source = '${'[' * pipelineDepth}0${']' * pipelineDepth}';
+        final result = parseHocon(source);
+        final parsed = switch (result) {
+          Success<ParseError, HoconValue>(:final value) => value,
+          Partial<ParseError, HoconValue>(:final value) => value,
+          Failure() => throw StateError('parse failed: ${result.errors}'),
+        };
+        final native = hoconToNative(resolveHocon(parsed));
+        expect(native, isA<List<Object?>>());
+      },
+    );
+  });
 }

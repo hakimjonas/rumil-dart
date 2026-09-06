@@ -1,0 +1,21 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    - prefer_final_locals
+    - prefer_final_in_for_each
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - always_declare_return_types
+    - annotate_overrides
+    - avoid_dynamic_calls
+    - prefer_expression_function_bodies
+    - unnecessary_lambdas
+    - prefer_single_quotes
+    - public_member_api_docs

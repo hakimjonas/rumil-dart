@@ -3,6 +3,7 @@ library;
 
 // AST types
 export 'src/ast/hcl.dart';
+export 'src/ast/hocon.dart';
 export 'src/ast/json.dart';
 export 'src/ast/markdown.dart';
 export 'src/ast/proto.dart';
@@ -35,6 +36,9 @@ export 'src/delimited.dart'
         CsvDocument,
         defaultCsvConfig;
 export 'src/hcl.dart' show parseHcl;
+export 'src/hocon.dart' show parseHocon;
+export 'src/hocon_resolve.dart'
+    show hoconToNative, resolveHocon, HoconConfig, HoconResolveException;
 export 'src/json.dart' show parseJson;
 export 'src/ndjson.dart' show NdJsonConfig, parseNdJson;
 export 'src/markdown.dart' show parseMarkdown;
@@ -64,4 +68,5 @@ export 'src/encode/yaml_encoders.dart';
 // Serializers (AST → string)
 export 'src/encode/csv_encoders.dart';
 export 'src/encode/hcl_encoders.dart';
+export 'src/encode/hocon_encoders.dart' show serializeHocon, serializeHoconTo;
 export 'src/encode/proto_encoders.dart' show serializeProto;
