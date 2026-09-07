@@ -1,3 +1,10 @@
+## 0.11.1
+
+Dependency-constraint patch: `analyzer` widened from `<14.0.0` to
+`<15.0.0` so the latest analyzer (14.x) is supported and the package's
+pub.dev dependency-freshness check passes. No functional changes; the
+generator's test suite passes unchanged against analyzer 14.3.0.
+
 ## 0.11.0
 
 - Dependency constraints bumped to `rumil_codec: ^0.11.0`,
